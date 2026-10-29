@@ -5,6 +5,8 @@ sources:
   url: github:xiaomi-latte-dev/linux_latte.git
   track: main
   ref: 575dbb62ac89c5e3e49f98c386255178e29c9ec5
+- kind: local
+  path: files/boot-keys/modules/linux-module-cert.crt
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/runtime-gnu.bst
@@ -45,7 +47,3 @@ config:
       "%{install-root}/usr/lib/modules/${version}/System.map"
     install -Dm644 .config \
       "%{install-root}/usr/lib/modules/${version}/config"
-
-sources:
-- kind: local
-  path: files/boot-keys/modules/linux-module-cert.crt
