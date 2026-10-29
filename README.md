@@ -1,37 +1,37 @@
-# GNOME OS para Xiaomi Mi Pad 2
+# GNOME OS for Xiaomi Mi Pad 2
 
-Primer prototipo de GNOME OS Preview 51 para probar desde un USB externo. No instala GNOME OS en la tablet y no modifica postmarketOS ni el eMMC.
+An initial GNOME OS Preview 51 prototype for testing from an external USB drive. It does not install GNOME OS on the tablet or modify postmarketOS or the eMMC.
 
-Esta adaptación se basa en GNOME OS y BuildStream oficiales, no en Arch Linux. Fija GNOME Build Meta al commit `8a89846df11e86cee57c728a86a247e61d604b84` y el kernel de Xiaomi Mi Pad 2 (`xiaomi-latte-dev/linux_latte`) al commit `575dbb62ac89c5e3e49f98c386255178e29c9ec5`. Mantiene la arquitectura CPU x86-64 genérica: no activa `x86_64_v3`.
+This adaptation is based on official GNOME OS and BuildStream, not Arch Linux. It pins GNOME Build Meta to commit `8a89846df11e86cee57c728a86a247e61d604b84` and the Xiaomi Mi Pad 2 kernel (`xiaomi-latte-dev/linux_latte`) to commit `575dbb62ac89c5e3e49f98c386255178e29c9ec5`. It keeps the generic x86-64 CPU baseline and does not enable `x86_64_v3`.
 
-## Compilar
+## Build
 
-Se necesita Linux, Git, Python 3, GNU Make, GnuPG, BuildStream 2.6 o posterior y su entorno de sandbox requerido por GNOME OS, además de conexión a Internet y espacio libre para el checkout y la compilación completa de GNOME OS. Consulta también los requisitos de compilación de GNOME OS. En la raíz del proyecto:
+You need Linux, Git, Python 3, GNU Make, GnuPG, BuildStream 2.6 or later, and the sandbox dependencies required by GNOME OS. You also need an Internet connection and enough free storage for the checkout and complete GNOME OS build. See [GNOME OS build requirements](https://gitlab.gnome.org/GNOME/gnome-build-meta/-/blob/gnome-51/docs/contributing-os.md#building-and-booting-a-gnome-os-image) as well. From the repository root, run:
 
 ```sh
 bash build/build-usb.sh
 ```
 
-El script mantiene el checkout GNOME temporal en `.build/` y deja `disk.iso` en `.build/out/`. BuildStream guarda su caché en la ubicación que tenga configurada (normalmente bajo `~/.cache/buildstream`). El script no recibe rutas a discos y no escribe en dispositivos de bloque.
+The script keeps the temporary GNOME checkout in `.build/` and writes `disk.iso` to `.build/out/`. BuildStream stores its cache in its configured location (typically under `~/.cache/buildstream`). The script does not accept disk paths and does not write to block devices.
 
-Para esta imagen de prueba se generan las claves de prueba públicas (`snakeoil`) que recomienda GNOME para compilaciones locales. No proporcionan seguridad y no son claves privadas de este dispositivo; no las inscribas en el firmware. Si Secure Boot bloquea el medio, detente en vez de cambiar ajustes o inscribir claves.
+For this test image, the script generates GNOME's public `snakeoil` test keys, recommended for local builds. They provide no security and are not private keys for this device; do not enroll them in firmware. If Secure Boot blocks the media, stop instead of changing firmware settings or enrolling keys.
 
-**La imagen no está incluida en el repositorio.** Solo debe considerarse disponible si el comando de compilación termina correctamente y el archivo `.build/out/disk.iso` existe y no está vacío. El primer arranque en la tablet requiere validación manual.
+**The image is not included in this repository.** Consider it available only if the build command succeeds and `.build/out/disk.iso` exists and is non-empty. The first boot on the tablet still requires manual validation.
 
-## Compatibilidad y prueba USB
+## Compatibility and USB testing
 
-La imagen es x86-64 y requiere firmware UEFI capaz de arrancar una aplicación EFI x86-64. La Mi Pad 2 puede tener firmware UEFI de 32 bits aun con una CPU x86-64; no supongas que es compatible solo por ser originalmente un modelo Windows. Comprueba en postmarketOS, de forma no destructiva:
+The image is x86-64 and requires UEFI firmware capable of booting an x86-64 EFI application. The Mi Pad 2 may have 32-bit UEFI firmware even though its CPU is x86-64; do not assume compatibility just because it was originally a Windows model. Check non-destructively from postmarketOS:
 
 ```sh
 cat /sys/firmware/efi/fw_platform_size
 ```
 
-El valor `64` es necesario para esta imagen. Si el archivo no existe o muestra `32`, no intentes arrancarla con este medio.
+The value `64` is required for this image. If the file does not exist or shows `32`, do not try to boot this media.
 
-Para probar, escribe la imagen en un USB vacío con una herramienta de imágenes, revisando cuidadosamente el dispositivo de destino: escribir la imagen borra el contenido del USB. Arranca mediante el menú de arranque temporal del firmware. No selecciones instalar, reparar ni flashear el sistema. No cambies GPT, variables EFI, Secure Boot, el orden permanente de arranque ni el cargador interno. Si Secure Boot impide el arranque, detente; esta guía no autoriza a desactivarlo ni a inscribir claves. Si no arranca, apaga, retira el USB y vuelve a arrancar normalmente desde postmarketOS.
+To test it, write the image to an empty USB drive with an imaging tool, carefully checking the target device: writing the image erases the USB drive's contents. Boot using the firmware's one-time boot menu. Do not select any install, repair, or flash option. Do not change GPT, EFI variables, Secure Boot, the permanent boot order, or the internal bootloader. If Secure Boot blocks booting, stop; this guide does not authorize disabling it or enrolling keys. If it does not boot, power off, remove the USB drive, and boot normally into postmarketOS.
 
-La configuración desactiva los servicios de actualización de imagen de GNOME OS para evitar que sustituyan el kernel Latte por uno genérico. No se distribuyen firmware binario ni perfiles UCM comunitarios: sus licencias de redistribución no están verificadas. Wi-Fi, Bluetooth, audio y cámaras pueden no funcionar, aunque el kernel incluya los controladores.
+The configuration disables GNOME OS image-update services to prevent them from replacing the Latte kernel with a generic one. Community binary firmware and UCM profiles are not included because their redistribution licenses have not been verified. Wi-Fi, Bluetooth, audio, and cameras may not work even though the kernel includes their drivers.
 
-## Estado de soporte
+## Support status
 
-GNOME OS Preview es experimental. No se ha verificado el arranque en hardware real ni el funcionamiento de pantalla táctil, rotación, suspensión, batería, Wi-Fi, audio o cámaras. La compilación de recetas no equivale a una imagen de arranque validada.
+GNOME OS Preview is experimental. Booting on physical hardware and operation of the touchscreen, rotation, suspend, battery, Wi-Fi, audio, and cameras have not been verified. Building the recipes does not mean the image has been validated to boot.

@@ -10,7 +10,7 @@ on:
       - elements/**
       - files/latte/**
       - README.md
-      - docs/COMPILAR.md
+      - docs/BUILD.md
   workflow_dispatch:
 
 permissions:

@@ -25,7 +25,7 @@ expected_marker="$GNOME_BUILD_META_COMMIT:$integration_fingerprint"
 
 for tool in git python3 bst make sha256sum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
-        printf 'Falta la herramienta requerida: %s\n' "$tool" >&2
+        printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
     fi
 done
@@ -37,12 +37,12 @@ fi
 
 if [[ -f "$prepared_marker" ]]; then
     if [[ "$(cat "$prepared_marker")" != "$expected_marker" ]]; then
-        printf 'La integración del checkout existente está desactualizada; retira .build/gnome-build-meta y vuelve a compilar.\n' >&2
+        printf 'The existing checkout integration is stale; remove .build/gnome-build-meta and rebuild.\n' >&2
         exit 1
     fi
 else
     if [[ -n "$(git -C "$upstream" status --porcelain)" ]]; then
-        printf 'El checkout GNOME Build Meta existente tiene cambios; no se modificará.\n' >&2
+        printf 'The existing GNOME Build Meta checkout has changes; it will not be modified.\n' >&2
         exit 1
     fi
     git -C "$upstream" fetch --filter=blob:none origin "$GNOME_BUILD_META_COMMIT"
@@ -51,7 +51,7 @@ fi
 
 actual_commit="$(git -C "$upstream" rev-parse HEAD)"
 if [[ "$actual_commit" != "$GNOME_BUILD_META_COMMIT" ]]; then
-    printf 'La revisión de GNOME Build Meta no coincide: %s\n' "$actual_commit" >&2
+    printf 'GNOME Build Meta revision mismatch: %s\n' "$actual_commit" >&2
     exit 1
 fi
 
@@ -96,7 +96,7 @@ fi
 
 mkdir -p "$output"
 if [[ -e "$output/disk.iso" ]]; then
-    printf 'Ya existe %s; muévelo o quítalo antes de reconstruir.\n' "$output/disk.iso" >&2
+    printf '%s already exists; move or remove it before rebuilding.\n' "$output/disk.iso" >&2
     exit 1
 fi
 (
@@ -111,7 +111,7 @@ fi
 )
 
 if [[ ! -s "$output/disk.iso" ]]; then
-    printf 'El build finalizó sin producir disk.iso.\n' >&2
+    printf 'The build completed without producing disk.iso.\n' >&2
     exit 1
 fi
-printf 'Imagen lista: %s\n' "$output/disk.iso"
+printf 'Image ready: %s\n' "$output/disk.iso"
