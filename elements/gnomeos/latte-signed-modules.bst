@@ -23,7 +23,7 @@ config:
   - |
     openssl x509 -inform PEM -outform DER \
       -in linux-module-cert.crt \
-      -out "%{install-root}/usr/lib/modules/linux-module-cert.cer"
+      -out linux-module-cert.cer
   - |
     find "%{install-root}/usr/lib/modules" -type f -name "*.ko.zst" \
       -exec unzstd --rm {} ';'
