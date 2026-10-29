@@ -9,21 +9,24 @@ sources:
   path: files/boot-keys/modules/linux-module-cert.crt
 
 build-depends:
-- freedesktop-sdk.bst:public-stacks/runtime-gnu.bst
+- freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
 - freedesktop-sdk.bst:components/bc.bst
 - freedesktop-sdk.bst:components/bison.bst
+- freedesktop-sdk.bst:components/cpio.bst
 - freedesktop-sdk.bst:components/elfutils.bst
 - freedesktop-sdk.bst:components/flex.bst
-- freedesktop-sdk.bst:components/gcc.bst
-- freedesktop-sdk.bst:components/grep.bst
+- freedesktop-sdk.bst:components/gzip.bst
 - freedesktop-sdk.bst:components/kmod.bst
-- freedesktop-sdk.bst:components/make.bst
 - freedesktop-sdk.bst:components/openssl.bst
 - freedesktop-sdk.bst:components/pahole.bst
 - freedesktop-sdk.bst:components/perl.bst
+- freedesktop-sdk.bst:components/python3.bst
 - freedesktop-sdk.bst:components/rsync.bst
-- freedesktop-sdk.bst:components/sed.bst
+- freedesktop-sdk.bst:components/rust-bindgen.bst
+- freedesktop-sdk.bst:components/rust-src.bst
+- freedesktop-sdk.bst:components/rust.bst
 - freedesktop-sdk.bst:components/sign-file.bst
+- freedesktop-sdk.bst:components/util-linux.bst
 - freedesktop-sdk.bst:components/zstd.bst
 
 variables:
