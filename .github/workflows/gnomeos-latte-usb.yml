@@ -56,7 +56,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             bubblewrap fuse3 ostree pipx
           pipx install 'BuildStream==2.6.0'
-          pipx inject buildstream 'dulwich==0.24.0' 'tomlkit==0.15.2'
+          pipx inject buildstream 'dulwich==0.24.0' 'requests==2.34.2' 'tomlkit==0.15.2'
           pipx_bin_dir="$(pipx environment --value PIPX_BIN_DIR)"
           echo "$pipx_bin_dir" >> "$GITHUB_PATH"
           "$pipx_bin_dir/bst" --version
