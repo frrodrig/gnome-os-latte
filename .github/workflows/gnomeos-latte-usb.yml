@@ -56,8 +56,9 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             bubblewrap fuse3 ostree pipx
           pipx install 'BuildStream==2.6.0'
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/bst" --version
+          pipx_bin_dir="$(pipx environment --value PIPX_BIN_DIR)"
+          echo "$pipx_bin_dir" >> "$GITHUB_PATH"
+          "$pipx_bin_dir/bst" --version
           bwrap --unshare-user --unshare-pid --ro-bind / / /bin/true
 
       - name: Check available build capacity
