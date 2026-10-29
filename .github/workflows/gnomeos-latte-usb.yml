@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            bubblewrap fuse3 ostree pipx
+            bubblewrap fuse3 lzip ostree pipx
           pipx install 'BuildStream==2.6.0'
           pipx inject buildstream \
             'buildstream-plugins==2.5.0' \
