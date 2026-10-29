@@ -104,10 +104,10 @@ fi
     bst \
         --builders 2 \
         --max-jobs "${BST_MAX_JOBS:-2}" \
-        build \
         --option arch x86_64 \
         --option channel stable \
         --option recc passthrough \
+        build \
         gnomeos/live-image.bst
     bst artifact checkout gnomeos/live-image.bst --directory "$output"
 )
