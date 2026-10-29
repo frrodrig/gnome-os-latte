@@ -3,7 +3,7 @@ name: GNOME OS Latte USB image
 on:
   push:
     branches:
-      - feat/gnome-os-latte-usb
+      - master
     paths:
       - .github/workflows/gnomeos-latte-usb.yml
       - build/**
