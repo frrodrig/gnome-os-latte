@@ -63,6 +63,13 @@ jobs:
             'tomlkit==0.15.2'
           pipx_bin_dir="$(pipx environment --value PIPX_BIN_DIR)"
           echo "$pipx_bin_dir" >> "$GITHUB_PATH"
+          bst_path="$(readlink -f "$pipx_bin_dir/bst")"
+          bst_python="$(sed -n '1s/^#!//p' "$bst_path")"
+          "$bst_python" -c '
+          from importlib.metadata import version
+          print("BuildStream plugin distribution:", version("buildstream-plugins"))
+          '
+          echo "BST_BIN=$pipx_bin_dir/bst" >> "$GITHUB_ENV"
           "$pipx_bin_dir/bst" --version
           # Ubuntu 24.04 restricts unprivileged user namespaces by default.
           if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then

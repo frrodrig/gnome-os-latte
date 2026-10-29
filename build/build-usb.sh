@@ -23,12 +23,23 @@ integration_fingerprint="$(
 )"
 expected_marker="$GNOME_BUILD_META_COMMIT:$integration_fingerprint"
 
-for tool in git python3 bst make sha256sum; do
+for tool in git python3 make sha256sum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
     fi
 done
+
+if [[ -n "${BST_BIN:-}" ]]; then
+    bst_bin="$BST_BIN"
+else
+    bst_bin="$(command -v bst || true)"
+fi
+if [[ -z "$bst_bin" || ! -x "$bst_bin" ]]; then
+    printf 'Required BuildStream executable is missing: %s\n' "${BST_BIN:-bst}" >&2
+    exit 1
+fi
+"$bst_bin" --version
 
 if [[ ! -d "$upstream/.git" ]]; then
     mkdir -p "$build_root"
@@ -101,7 +112,7 @@ if [[ -e "$output/disk.iso" ]]; then
 fi
 (
     cd "$upstream"
-    bst \
+    "$bst_bin" \
         --builders 2 \
         --max-jobs "${BST_MAX_JOBS:-2}" \
         --option arch x86_64 \
@@ -109,7 +120,7 @@ fi
         --option recc passthrough \
         build \
         gnomeos/live-image.bst
-    bst artifact checkout gnomeos/live-image.bst --directory "$output"
+    "$bst_bin" artifact checkout gnomeos/live-image.bst --directory "$output"
 )
 
 if [[ ! -s "$output/disk.iso" ]]; then
