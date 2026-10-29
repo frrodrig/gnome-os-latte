@@ -1,0 +1,121 @@
+name: GNOME OS Latte USB image
+
+on:
+  push:
+    branches:
+      - francisco-rodriguez-bys-latte-gnomeos-usb
+    paths:
+      - .github/workflows/gnomeos-latte-usb.yml
+      - build/**
+      - elements/**
+      - files/latte/**
+      - README.md
+      - docs/COMPILAR.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gnomeos-latte-usb-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build on standard free Linux runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Inspect and reclaim runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner: $(uname -a)"
+          echo "CPU cores: $(nproc)"
+          free -h
+          df -h /
+
+          # Remove only these preinstalled SDKs from this disposable runner.
+          for path in /usr/local/lib/android /usr/share/dotnet /opt/ghc; do
+            if [[ -d "$path" ]]; then
+              sudo du -sh "$path"
+              sudo rm -rf -- "$path"
+            fi
+          done
+          sudo apt-get clean
+          df -h /
+
+      - name: Install BuildStream and sandbox tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bubblewrap fuse3 ostree python3-pipx
+          pipx install 'BuildStream==2.6.0'
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bst" --version
+          bwrap --unshare-user --unshare-pid --ro-bind / / /bin/true
+
+      - name: Check available build capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          free -h
+          df -h /
+          available_bytes="$(df --output=avail -B1 / | tail -n 1 | tr -d ' ')"
+          available_gib=$((available_bytes / 1024 / 1024 / 1024))
+          echo "Free root filesystem after setup: ${available_gib} GiB"
+          if (( available_gib < 20 )); then
+            echo "::error::Fewer than 20 GiB remain on the standard runner; refusing a predictably incomplete image build."
+            exit 1
+          fi
+          if (( available_gib < 45 )); then
+            echo "::warning::GNOME estimates about 50 GiB for a first build. Proceeding because GNOME's remote artifact cache may reduce local work; disk exhaustion remains possible."
+          fi
+
+      - name: Build and verify USB image
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/gnomeos-latte-build.log"
+          mkdir -p "$(dirname "$log")"
+          set +e
+          bash build/build-usb.sh 2>&1 | tee "$log"
+          result=${PIPESTATUS[0]}
+          set -e
+          if (( result != 0 )); then
+            echo "::error::BuildStream returned $result. Last useful log lines:"
+            tail -n 160 "$log"
+            exit "$result"
+          fi
+          test -s .build/out/disk.iso
+          sha256sum .build/out/disk.iso | tee .build/out/SHA256SUMS
+          du -h .build/out/disk.iso
+          df -h /
+
+      - name: Upload ISO and checksum (one-day retention)
+        if: success() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gnomeos-latte-usb-${{ github.run_id }}
+          path: |
+            .build/out/disk.iso
+            .build/out/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Preserve build log (one-day retention)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gnomeos-latte-build-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/gnomeos-latte-build.log
+          if-no-files-found: ignore
+          retention-days: 1
+          compression-level: 0

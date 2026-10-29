@@ -1,0 +1,7 @@
+# Xiaomi Mi Pad 2 capacitive bezel buttons.
+evdev:name:FTSC1000:00 2808:509C Keyboard:dmi:*:svnXiaomiInc:pnMipad2:*
+ KEYBOARD_KEY_700e0=reserved
+ KEYBOARD_KEY_700e3=reserved
+ KEYBOARD_KEY_70016=menu
+ KEYBOARD_KEY_70029=leftmeta
+ KEYBOARD_KEY_7002a=back
