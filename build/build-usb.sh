@@ -101,8 +101,10 @@ if [[ -e "$output/disk.iso" ]]; then
 fi
 (
     cd "$upstream"
-    bst build \
+    bst \
+        --builders 2 \
         --max-jobs "${BST_MAX_JOBS:-2}" \
+        build \
         --option arch x86_64 \
         --option channel stable \
         --option recc passthrough \
