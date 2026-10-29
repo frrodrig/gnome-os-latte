@@ -15,12 +15,14 @@ build-depends:
 - freedesktop-sdk.bst:components/elfutils.bst
 - freedesktop-sdk.bst:components/flex.bst
 - freedesktop-sdk.bst:components/gcc.bst
+- freedesktop-sdk.bst:components/grep.bst
 - freedesktop-sdk.bst:components/kmod.bst
 - freedesktop-sdk.bst:components/make.bst
 - freedesktop-sdk.bst:components/openssl.bst
 - freedesktop-sdk.bst:components/pahole.bst
 - freedesktop-sdk.bst:components/perl.bst
 - freedesktop-sdk.bst:components/rsync.bst
+- freedesktop-sdk.bst:components/sed.bst
 - freedesktop-sdk.bst:components/sign-file.bst
 - freedesktop-sdk.bst:components/zstd.bst
 
