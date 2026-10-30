@@ -110,17 +110,18 @@ if [[ -e "$output/disk.iso" ]]; then
     printf '%s already exists; move or remove it before rebuilding.\n' "$output/disk.iso" >&2
     exit 1
 fi
+bst_options=(
+    --builders 2
+    --max-jobs "${BST_MAX_JOBS:-2}"
+    --option arch x86_64
+    --option channel stable
+    --option recc passthrough
+)
 (
     cd "$upstream"
-    "$bst_bin" \
-        --builders 2 \
-        --max-jobs "${BST_MAX_JOBS:-2}" \
-        --option arch x86_64 \
-        --option channel stable \
-        --option recc passthrough \
-        build \
-        gnomeos/live-image.bst
-    "$bst_bin" artifact checkout gnomeos/live-image.bst --directory "$output"
+    "$bst_bin" "${bst_options[@]}" build gnomeos/live-image.bst
+    "$bst_bin" "${bst_options[@]}" artifact checkout gnomeos/live-image.bst \
+        --directory "$output"
 )
 
 if [[ ! -s "$output/disk.iso" ]]; then
