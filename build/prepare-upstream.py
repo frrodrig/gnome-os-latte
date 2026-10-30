@@ -50,6 +50,20 @@ def main() -> None:
         "      - gnomeos/initramfs/signed-nvidia-modules.bst\n",
     )
 
+    remove_once(
+        root / "elements/gnomeos/initramfs/filesystem.bst",
+        "  - |\n"
+        "    case '%{arch}' in\n"
+        "      x86_64)\n"
+        '        version="$(ls -1 /lib/modules | head -n1)"\n'
+        "        mkdir -p %{install-root}/usr/lib/modules/\"${version}\"/kernel/drivers/video\n"
+        '        cp /usr/lib/modules/"${version}"/kernel/drivers/video/nvidia*.ko* %{install-root}/usr/lib/modules/"${version}"/kernel/drivers/video/\n'
+        '        depmod -a -b %{install-root}/usr "${version}"\n'
+        '        rm -rf %{install-root}/usr/lib/modules/"${version}"/kernel/drivers/video/nvidia*.ko*\n'
+        "        ;;\n"
+        "    esac\n",
+    )
+
     usr_layer = root / "elements/gnomeos/usr/layer.bst"
     remove_once(
         usr_layer,
