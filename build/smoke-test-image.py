@@ -100,7 +100,7 @@ def run(image: Path, output: Path, fragment: Path, timeout: int) -> None:
 set -eu
 /usr/bin/dmsetup table usr > /run/latte-verity-table
 grep -q ' verity ' /run/latte-verity-table
-awk '$2 == "/sysroot/usr" && $3 == "erofs" && $4 ~ /(^|,)ro(,|$)/ {{ok=1}} END {{exit !ok}}' /proc/mounts
+grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
 test -s /sysroot/usr/lib/os-release
 config=/sysroot/usr/lib/modules/{version}/config
 while IFS= read -r required; do
