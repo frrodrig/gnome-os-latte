@@ -14,6 +14,18 @@ from importlib.util import module_from_spec, spec_from_file_location
 
 ESP_TYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 VERITY_TYPE = "77ff5f63-e7b6-4633-acf4-1565b864c0e6"
+PROBE_UNIT = """[Unit]
+DefaultDependencies=no
+IgnoreOnIsolate=yes
+Requires=sysroot-usr.mount systemd-veritysetup@usr.service
+After=sysroot-usr.mount systemd-veritysetup@usr.service
+Before=initrd-cleanup.service initrd-switch-root.target
+[Service]
+Type=oneshot
+ExecStart=/latte-boot-probe
+StandardOutput=journal+console
+StandardError=journal+console
+"""
 
 
 def cpio(entries: list[tuple[str, int, bytes]]) -> bytes:
@@ -123,21 +135,10 @@ cat /run/latte-verity-table
 echo LATTE_BOOT_SMOKE_OK_VERITY_EROFS
 /usr/bin/systemctl --no-block poweroff
 """
-    unit = """[Unit]
-DefaultDependencies=no
-Requires=sysroot-usr.mount systemd-veritysetup@usr.service
-After=sysroot-usr.mount systemd-veritysetup@usr.service
-Before=initrd-switch-root.target
-[Service]
-Type=oneshot
-ExecStart=/latte-boot-probe
-StandardOutput=journal+console
-StandardError=journal+console
-"""
     archive = cpio([
         ("latte-boot-probe", stat.S_IFREG | 0o755, probe.encode()),
         ("latte-boot.config", stat.S_IFREG | 0o644, ("\n".join(required) + "\n").encode()),
-        ("usr/lib/systemd/system/latte-boot-probe.service", stat.S_IFREG | 0o644, unit.encode()),
+        ("usr/lib/systemd/system/latte-boot-probe.service", stat.S_IFREG | 0o644, PROBE_UNIT.encode()),
         ("usr/lib/systemd/system/initrd.target.wants/latte-boot-probe.service",
          stat.S_IFLNK | 0o777, b"../latte-boot-probe.service"),
     ])

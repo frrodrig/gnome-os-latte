@@ -21,6 +21,11 @@ fragment = Path(__file__).resolve().parent.parent / "files/kernel/latte-boot.con
 
 
 class BootValidationTests(unittest.TestCase):
+    def test_probe_finishes_before_initrd_isolation(self):
+        self.assertIn("IgnoreOnIsolate=yes", smoke.PROBE_UNIT)
+        self.assertIn("Before=initrd-cleanup.service initrd-switch-root.target", smoke.PROBE_UNIT)
+        self.assertIn("After=sysroot-usr.mount systemd-veritysetup@usr.service", smoke.PROBE_UNIT)
+
     def test_builtin_requirements(self):
         required = config.requirements(fragment)
         for key in ("DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD", "CRYPTO_SHA256"):
