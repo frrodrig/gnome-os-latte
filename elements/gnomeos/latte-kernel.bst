@@ -7,6 +7,10 @@ sources:
   ref: 575dbb62ac89c5e3e49f98c386255178e29c9ec5
 - kind: local
   path: files/boot-keys/modules/linux-module-cert.crt
+- kind: local
+  path: files/gnomeos/latte-boot.config
+- kind: local
+  path: files/gnomeos/check-boot-config.py
 
 build-depends:
 - freedesktop-sdk.bst:public-stacks/buildsystem-make.bst
@@ -35,9 +39,10 @@ variables:
 config:
   build-commands:
   - make ARCH=x86 xiaomipad2_defconfig
+  - ./scripts/kconfig/merge_config.sh -m .config latte-boot.config
   - ./scripts/config --enable EFI_STUB --enable EFI_MIXED --enable MODULE_SIG --enable MODULE_SIG_FORCE --set-str SYSTEM_TRUSTED_KEYS linux-module-cert.crt
   - make ARCH=x86 olddefconfig
-  - grep -qx 'CONFIG_MODULES=y' .config
+  - python3 check-boot-config.py .config latte-boot.config
   - make ARCH=x86 -j%{max-jobs} bzImage modules
 
   install-commands:

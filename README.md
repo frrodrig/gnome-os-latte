@@ -16,7 +16,7 @@ The script keeps the temporary GNOME checkout in `.build/` and writes `disk.iso`
 
 For this test image, the script generates GNOME's public `snakeoil` test keys, recommended for local builds. They provide no security and are not private keys for this device; do not enroll them in firmware. If Secure Boot blocks the media, stop instead of changing firmware settings or enrolling keys.
 
-**The image is not included in this repository.** Consider it available only if the build command succeeds and `.build/out/disk.iso` exists and is non-empty. The first boot on the tablet still requires manual validation.
+**The image is not included in this repository.** Consider it available only if the build command succeeds and `.build/out/disk.iso` exists and is non-empty. Actions additionally gates the ISO upload on a QEMU test of the produced kernel/initrd mounting verity-protected EROFS `/usr`. Replacement boot on the tablet still requires manual validation.
 
 ## Compatibility and USB testing
 
@@ -30,8 +30,8 @@ The value `64` is required for this image. If the file does not exist or shows `
 
 To test it, write the image to an empty USB drive with an imaging tool, carefully checking the target device: writing the image erases the USB drive's contents. Boot using the firmware's one-time boot menu. Do not select any install, repair, or flash option. Do not change GPT, EFI variables, Secure Boot, the permanent boot order, or the internal bootloader. If Secure Boot blocks booting, stop; this guide does not authorize disabling it or enrolling keys. If it does not boot, power off, remove the USB drive, and boot normally into postmarketOS.
 
-The configuration disables GNOME OS image-update services to prevent them from replacing the Latte kernel with a generic one. Community binary firmware and UCM profiles are not included because their redistribution licenses have not been verified. Wi-Fi, Bluetooth, audio, and cameras may not work even though the kernel includes their drivers.
+The configuration disables GNOME OS image-update services to prevent them from replacing the Latte kernel with a generic one. Extra community binary firmware and UCM profiles are not copied because their redistribution licenses have not been verified. Upstream GNOME OS firmware is still present, including the Xiaomi BCM4356 configuration from linux-firmware. Its exact redistribution audit remains unresolved, so there is no public prerelease. Normal Actions artifacts in this public repository are not private and expire after one day. Wi-Fi, Bluetooth, audio, and cameras may not work even though the kernel includes their drivers.
 
 ## Support status
 
-GNOME OS Preview is experimental. Booting on physical hardware and operation of the touchscreen, rotation, suspend, battery, Wi-Fi, audio, and cameras have not been verified. Building the recipes does not mean the image has been validated to boot.
+GNOME OS Preview is experimental. The first physical USB boot reached the initramfs but failed because the kernel lacked dm-verity; EROFS support was also missing. The kernel now merges and checks built-in early-boot requirements. See [build and regression-test details](docs/BUILD.md). Successful replacement boot, desktop startup, touchscreen, rotation, suspend, battery, Wi-Fi, audio, and cameras on the tablet remain unverified.

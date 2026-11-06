@@ -13,6 +13,8 @@ integration_fingerprint="$(
     sha256sum \
         "$repo_root/build/build-usb.sh" \
         "$repo_root/build/prepare-upstream.py" \
+        "$repo_root/build/check-boot-config.py" \
+        "$repo_root/files/kernel/latte-boot.config" \
         "$repo_root/elements/gnomeos/latte-kernel.bst" \
         "$repo_root/elements/gnomeos/latte-signed-modules.bst" \
         "$repo_root/elements/gnomeos/latte-hardware.bst" \
@@ -75,6 +77,10 @@ if [[ ! -f "$prepared_marker" ]]; then
         "$upstream/elements/gnomeos/latte-signed-modules.bst"
     install -Dm644 "$repo_root/elements/gnomeos/latte-hardware.bst" \
         "$upstream/elements/gnomeos/latte-hardware.bst"
+    install -Dm644 "$repo_root/files/kernel/latte-boot.config" \
+        "$upstream/files/gnomeos/latte-boot.config"
+    install -Dm644 "$repo_root/build/check-boot-config.py" \
+        "$upstream/files/gnomeos/check-boot-config.py"
     install -d "$upstream/files/gnomeos/latte"
     install -Dm644 "$repo_root/files/latte/90-latte.hwdb" \
         "$upstream/files/gnomeos/latte/90-latte.hwdb"
@@ -91,6 +97,8 @@ if [[ ! -f "$prepared_marker" ]]; then
         elements/gnomeos/latte-signed-modules.bst \
         elements/gnomeos/latte-hardware.bst \
         elements/gnomeos-deps/deps.bst \
+        files/gnomeos/latte-boot.config \
+        files/gnomeos/check-boot-config.py \
         files/gnomeos/latte/90-latte.hwdb \
         files/gnomeos/latte/latte.conf \
         files/gnomeos/latte/00-latte-disable-sysupdate.preset

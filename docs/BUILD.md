@@ -22,7 +22,41 @@ The script:
 
 The kernel revision is pinned as well. Transitive dependencies and the Freedesktop SDK junction use the revisions defined by the pinned GNOME Build Meta commit. BuildStream stores source and artifact data in its configured cache, usually outside `.build/`.
 
+The hardware defconfig is merged with `files/kernel/latte-boot.config`. The build
+checks the **resolved** `.config` after `olddefconfig`, not just the requested
+fragment. Device mapper, dm-verity, SHA-256, EROFS (including Zstandard), USB
+storage, and the live-root prerequisites are built in so they do not depend on
+modules loaded from the not-yet-mounted `/usr`. Integrity verification remains
+enabled with the original UKI root hash and `panic-on-corruption`.
+
 Do not pass a disk path to the script. It writes only within `.build/`. If the build fails, no usable image has been generated.
+
+## Automated early boot regression
+
+The Actions workflow runs `python3 build/test-boot-validation.py` and, after
+building, extracts the kernel, initrd, command line, and version from the actual
+produced UKI. It checks the ISO's verity superblock uses SHA-256, then runs:
+
+```sh
+python3 build/smoke-test-image.py .build/out/disk.iso --output .build/boot-smoke
+```
+
+This requires QEMU, mtools, binutils, and util-linux. QEMU uses TCG with only a
+read-only virtual USB image attached; no host disks or network are exposed. A
+test-only probe appended to the VM initrd checks that `/sysroot/usr` is mounted
+read-only as EROFS over an active `verity` device-mapper target, and checks the
+kernel configuration read from that mounted filesystem. The downloadable ISO
+does not contain this probe. Logs, the effective config, and a JSON result are
+retained with the build evidence. The ISO upload is gated on this test passing.
+
+This checks the early-boot path that failed on the tablet, **not** UEFI/shim,
+Secure Boot, GNOME desktop startup, or tablet peripherals. It cannot substitute
+for another physical USB boot test.
+
+No prerelease is published while the firmware redistribution audit remains
+unresolved. Normal Actions artifacts in this public repository are accessible
+to users with repository read access and expire after one day; they are not
+private or permanent release downloads.
 
 ## Checks before testing
 
@@ -44,4 +78,10 @@ If the media does not boot or something goes wrong, power off the tablet, discon
 
 The kernel includes Latte hardware support, capacitive-button mappings, and loading of the RT5659 audio module. The community files `BCM4356A2.hcd`, `shisp_2401a0_v21.bin`, Wi-Fi calibration data, and ALSA UCM profiles are not copied because their redistribution licenses have not been verified. The image may boot while some device-specific features remain unavailable.
 
-Booting on a physical Mi Pad 2 has not yet been tested. The touchscreen, rotation, suspend, battery, wireless networking, audio, and cameras still need testing; do not infer working hardware support merely because the kernel recipe builds.
+The first physical USB boot reached the initramfs but failed to activate
+dm-verity because the original hardware defconfig omitted `CONFIG_DM_VERITY`;
+it also omitted `CONFIG_EROFS_FS`. The boot fragment and automated mount test
+address these omissions. Successful boot of the replacement on a physical Mi
+Pad 2 is still unconfirmed. The touchscreen, rotation, suspend, battery,
+wireless networking, audio, and cameras still need testing; do not infer
+working hardware support merely because the kernel recipe builds.
