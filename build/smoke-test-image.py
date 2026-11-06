@@ -53,6 +53,15 @@ def validate_cmdline(cmdline: str) -> None:
         raise ValueError("Unexpected verity override")
 
 
+def append_archive(original: Path, destination: Path, archive: bytes) -> None:
+    with destination.open("wb") as target, original.open("rb") as source:
+        shutil.copyfileobj(source, target)
+        # The kernel requires uncompressed newc headers at four-byte offsets,
+        # including after a compressed initrd whose length is not aligned.
+        target.write(b"\0" * (-target.tell() % 4))
+        target.write(archive)
+
+
 def run(image: Path, output: Path, fragment: Path, timeout: int) -> None:
     output.mkdir(parents=True, exist_ok=True)
     layout = json.loads(
@@ -98,6 +107,7 @@ def run(image: Path, output: Path, fragment: Path, timeout: int) -> None:
     # The probe is appended only to the VM initrd, never to the downloadable ISO.
     probe = f"""#!/bin/sh
 set -eu
+exec > /dev/console 2>&1
 /usr/bin/dmsetup table usr > /run/latte-verity-table
 grep -q ' verity ' /run/latte-verity-table
 grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
@@ -132,9 +142,7 @@ StandardError=journal+console
          stat.S_IFLNK | 0o777, b"../latte-boot-probe.service"),
     ])
     initrd = output / "test-initrd"
-    with initrd.open("wb") as target, (output / "initrd").open("rb") as original:
-        shutil.copyfileobj(original, target)
-        target.write(archive)
+    append_archive(output / "initrd", initrd, archive)
 
     command = [
         "qemu-system-x86_64", "-machine", "q35,accel=tcg", "-cpu", "max",
@@ -160,7 +168,11 @@ StandardError=journal+console
         config = output / "kernel.config"
         config.write_text(match[1])
         checker.check(config, fragment)
-    if timed_out or result.returncode or not match or "LATTE_BOOT_SMOKE_OK_VERITY_EROFS" not in text:
+    if (
+        timed_out or result.returncode or not match
+        or "LATTE_BOOT_SMOKE_OK_VERITY_EROFS" not in text
+        or "Initramfs unpacking failed" in text
+    ):
         print(text[-24000:])
         raise SystemExit("QEMU did not confirm verity-backed read-only EROFS /usr")
     report = {

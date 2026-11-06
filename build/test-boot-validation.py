@@ -72,6 +72,23 @@ class BootValidationTests(unittest.TestCase):
         self.assertEqual(entries["probe"], (stat.S_IFREG | 0o755, b"script\n"))
         self.assertEqual(entries["wants/probe"], (stat.S_IFLNK | 0o777, b"../probe"))
 
+    def test_compressed_initrd_probe_alignment(self):
+        archive = smoke.cpio([("probe", stat.S_IFREG | 0o755, b"script\n")])
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "original"
+            destination = Path(directory) / "test-initrd"
+            for length in range(1, 9):
+                with self.subTest(length=length):
+                    original = b"\x28\xb5\x2f\xfd" + b"x" * length
+                    source.write_bytes(original)
+                    smoke.append_archive(source, destination, archive)
+                    combined = destination.read_bytes()
+                    offset = (len(original) + 3) & ~3
+                    self.assertEqual(combined[:len(original)], original)
+                    self.assertEqual(combined[len(original):offset], b"\0" * (offset - len(original)))
+                    self.assertEqual(combined[offset:], archive)
+                    self.assertEqual(source.read_bytes(), original)
+
 
 if __name__ == "__main__":
     unittest.main()
