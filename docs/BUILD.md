@@ -197,6 +197,14 @@ skip them when `root=live:gnomeos` is present; these are a separate safety fix,
 not a claimed fix for the unexplained verity panic. They do not retroactively
 change the previously generated ISO.
 
+The expanded image check also found that the original hardware element used
+the multiarch `%{libdir}` (`/usr/lib/x86_64-linux-gnu`) for service drop-ins,
+presets, module-load configuration, and hwdb data. These are architecture-
+independent lookup directories under `/usr/lib`; the element now uses
+`%{indep-libdir}`. The probe requires the files in their effective paths, not
+just somewhere in the image. Earlier images' misplaced preset must not be
+treated as proof that an update service was disabled.
+
 No prerelease is published while the firmware redistribution audit remains
 unresolved. Normal Actions artifacts in this public repository are accessible
 to users with repository read access and expire after one day; they are not

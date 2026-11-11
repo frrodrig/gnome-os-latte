@@ -204,6 +204,9 @@ exec > /dev/console 2>&1
 grep -q ' verity ' /run/latte-verity-table
 grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
 test -s /sysroot/usr/lib/os-release
+test -s /sysroot/usr/lib/udev/hwdb.d/90-latte.hwdb
+test -s /sysroot/usr/lib/modules-load.d/latte.conf
+test -s /sysroot/usr/lib/systemd/system-preset/00-latte-disable-sysupdate.preset
 for unit in systemd-boot-update.service systemd-boot-random-seed.service \\
     systemd-boot-clear-sysfail.service systemd-bless-boot.service \\
     systemd-bootctl@.service; do
