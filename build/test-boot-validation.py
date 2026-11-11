@@ -87,13 +87,14 @@ class BootValidationTests(unittest.TestCase):
 
     def test_builtin_requirements(self):
         required = config.requirements(fragment)
-        for key in ("DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD", "CRYPTO_SHA256", "AUTOFS_FS"):
+        for key in ("DM_CRYPT", "CRYPTO_AES", "CRYPTO_XTS", "DM_VERITY",
+                    "EROFS_FS", "EROFS_FS_ZIP_ZSTD", "CRYPTO_SHA256", "AUTOFS_FS"):
             self.assertIn(f"CONFIG_{key}=y", required)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config"
             path.write_text("\n".join(required))
             config.check(path, fragment)
-            for key in ("DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD"):
+            for key in ("DM_CRYPT", "DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD"):
                 with self.subTest(key=key):
                     path.write_text("\n".join(required).replace(f"CONFIG_{key}=y", f"CONFIG_{key}=m"))
                     with self.assertRaises(SystemExit):

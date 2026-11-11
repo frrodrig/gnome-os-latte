@@ -205,6 +205,14 @@ independent lookup directories under `/usr/lib`; the element now uses
 just somewhere in the image. Earlier images' misplaced preset must not be
 treated as proof that an update service was disabled.
 
+The kernel configuration in run `43027903872` lacks `CONFIG_DM_CRYPT`.
+The included GNOME installer uses encrypted root when TPM2 is available, so
+that configuration cannot support that installer path. The kernel fragment
+now requires built-in dm-crypt, AES, and XTS; the image probe also checks that
+the running kernel registers the crypt device-mapper target. This does not
+establish why the reported erase attempt stopped or prove installation on
+the tablet. Rebuild and hardware diagnostics are still required.
+
 No prerelease is published while the firmware redistribution audit remains
 unresolved. Normal Actions artifacts in this public repository are accessible
 to users with repository read access and expire after one day; they are not

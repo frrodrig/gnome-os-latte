@@ -202,6 +202,9 @@ set -eu
 exec > /dev/console 2>&1
 /usr/bin/dmsetup table usr > /run/latte-verity-table
 grep -q ' verity ' /run/latte-verity-table
+/usr/bin/dmsetup targets > /run/latte-dm-targets
+grep -Eq '^crypt[[:space:]]' /run/latte-dm-targets
+echo LATTE_DM_CRYPT_TARGET_OK
 grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
 test -s /sysroot/usr/lib/os-release
 test -s /sysroot/usr/lib/udev/hwdb.d/90-latte.hwdb
@@ -269,11 +272,12 @@ echo LATTE_BOOT_SMOKE_OK_VERITY_EROFS
     if (
         timed_out or result.returncode or not match
         or "LATTE_BOOT_SMOKE_OK_VERITY_EROFS" not in text
+        or "LATTE_DM_CRYPT_TARGET_OK" not in text
         or "LATTE_LIVE_BOOT_WRITE_GUARDS_OK" not in text
         or "Initramfs unpacking failed" in text
     ):
         print(text[-24000:])
-        raise SystemExit("QEMU did not confirm verity-backed read-only EROFS /usr")
+        raise SystemExit("QEMU did not confirm required device-mapper targets and read-only EROFS /usr")
     check_full_read(text)
     report = {
         "kernel_version": version, "verity_algorithm": algorithm,
