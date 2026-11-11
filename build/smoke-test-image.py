@@ -7,13 +7,16 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import struct
 import subprocess
+import tempfile
 
 from importlib.util import module_from_spec, spec_from_file_location
 
 
 ESP_TYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 VERITY_TYPE = "77ff5f63-e7b6-4633-acf4-1565b864c0e6"
+USR_TYPE = "8484680c-9521-48c6-9c11-b0720656f69e"
 PROBE_UNIT = """[Unit]
 DefaultDependencies=no
 IgnoreOnIsolate=yes
@@ -65,6 +68,79 @@ def validate_cmdline(cmdline: str) -> None:
         raise ValueError("Unexpected verity override")
 
 
+def verify_usr(image: Path, layout: dict, cmdline: str, output: Path) -> dict:
+    """Verify every protected block against the root hash from the actual UKI."""
+    validate_cmdline(cmdline)
+    root_hash = re.search(r"\busrhash=([0-9a-f]{64})\b", cmdline).group(1)
+    partitions = layout["partitions"]
+    data = next(p for p in partitions if p["type"].lower() == USR_TYPE)
+    hashes = next(p for p in partitions if p["type"].lower() == VERITY_TYPE)
+    if data["uuid"].replace("-", "").lower() != root_hash[:32]:
+        raise ValueError("Data partition UUID does not match the UKI root hash")
+    if hashes["uuid"].replace("-", "").lower() != root_hash[32:]:
+        raise ValueError("Hash partition UUID does not match the UKI root hash")
+    sector_size = layout["sectorsize"]
+    with image.open("rb") as source:
+        source.seek(hashes["start"] * sector_size)
+        header = source.read(512)
+    algorithm = verity_algorithm(header)
+    data_block_size, hash_block_size, data_blocks = struct.unpack_from("<IIQ", header, 64)
+    if data_block_size != 4096 or hash_block_size != 4096:
+        raise ValueError("Unvalidated dm-verity block size")
+    data_bytes = data_blocks * data_block_size
+    if not data_bytes or data_bytes != data["size"] * sector_size:
+        raise ValueError("Verity protected size does not match the data partition")
+
+    with tempfile.TemporaryDirectory(prefix="latte-verity-", dir=output) as directory:
+        files = []
+        for partition, name in ((data, "usr.raw"), (hashes, "usr-verity.raw")):
+            path = Path(directory) / name
+            with image.open("rb") as source, path.open("wb") as target:
+                source.seek(partition["start"] * sector_size)
+                remaining = partition["size"] * sector_size
+                while remaining:
+                    chunk = source.read(min(remaining, 8 * 1024 * 1024))
+                    if not chunk:
+                        raise ValueError("Truncated image partition")
+                    target.write(chunk)
+                    remaining -= len(chunk)
+            files.append(str(path))
+        result = subprocess.run(
+            ["veritysetup", "--verbose", "verify", *files, root_hash],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        (output / "verity-verify.log").write_text(result.stdout)
+        print(result.stdout, flush=True)
+        result.check_returncode()
+    report = {
+        "root_hash": root_hash, "algorithm": algorithm,
+        "data_blocks": data_blocks, "data_block_size": data_block_size,
+        "data_bytes": data_bytes, "result": "all protected data/hash blocks verified",
+    }
+    (output / "verity-verify.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
+def check_full_read(text: str) -> None:
+    if "LATTE_FULL_VERITY_READ_OK" not in text:
+        raise ValueError("The VM did not finish reading every protected /usr block")
+    status = re.search(
+        r"LATTE_VERITY_STATUS_BEGIN\n(.*?)LATTE_VERITY_STATUS_END", text, re.DOTALL
+    )
+    lines = [] if not status else [
+        line.strip() for line in status[1].splitlines()
+        if re.match(r"\s*\d+ \d+ verity\b", line)
+    ]
+    if len(lines) != 1 or not re.fullmatch(r"0 \d+ verity V(?: -)?", lines[0]):
+        raise ValueError("The active dm-verity target did not report valid status")
+    if re.search(
+        r"device-mapper: verity:.*corrupt|Buffer I/O error|I/O error, dev|"
+        r"blk_update_request:.*error|USB disconnect|reset .*USB device",
+        text, re.IGNORECASE,
+    ):
+        raise ValueError("The VM reported storage or dm-verity errors")
+
+
 def append_archive(original: Path, destination: Path, archive: bytes) -> None:
     with destination.open("wb") as target, original.open("rb") as source:
         shutil.copyfileobj(source, target)
@@ -74,7 +150,7 @@ def append_archive(original: Path, destination: Path, archive: bytes) -> None:
         target.write(archive)
 
 
-def run(image: Path, output: Path, fragment: Path, timeout: int) -> None:
+def run(image: Path, output: Path, fragment: Path, timeout: int, verify_only: bool = False) -> None:
     output.mkdir(parents=True, exist_ok=True)
     layout = json.loads(
         subprocess.check_output(["sfdisk", "--json", str(image)], text=True)
@@ -111,6 +187,10 @@ def run(image: Path, output: Path, fragment: Path, timeout: int) -> None:
     if not re.fullmatch(r"[a-zA-Z0-9.+_-]+", version):
         raise ValueError("Invalid kernel version in UKI")
     validate_cmdline(cmdline)
+    verification = verify_usr(image, layout, cmdline, output)
+    if verify_only:
+        print(json.dumps(verification), flush=True)
+        return
 
     spec = spec_from_file_location("boot_config", Path(__file__).with_name("check-boot-config.py"))
     checker = module_from_spec(spec)
@@ -124,6 +204,20 @@ exec > /dev/console 2>&1
 grep -q ' verity ' /run/latte-verity-table
 grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
 test -s /sysroot/usr/lib/os-release
+for unit in systemd-boot-update.service systemd-boot-random-seed.service \\
+    systemd-boot-clear-sysfail.service systemd-bless-boot.service \\
+    systemd-bootctl@.service; do
+    grep -qx 'ConditionKernelCommandLine=!root=live:gnomeos' \\
+        "/sysroot/usr/lib/systemd/system/$unit.d/00-latte-live.conf"
+done
+echo LATTE_LIVE_BOOT_WRITE_GUARDS_OK
+echo LATTE_FULL_VERITY_READ_BEGIN
+cat /dev/mapper/usr > /dev/null
+echo LATTE_FULL_VERITY_READ_OK
+echo LATTE_VERITY_STATUS_BEGIN
+/usr/bin/dmsetup status usr
+echo LATTE_VERITY_STATUS_END
+dmesg
 config=/sysroot/usr/lib/modules/{version}/config
 while IFS= read -r required; do
     grep -qx "$required" "$config"
@@ -172,13 +266,16 @@ echo LATTE_BOOT_SMOKE_OK_VERITY_EROFS
     if (
         timed_out or result.returncode or not match
         or "LATTE_BOOT_SMOKE_OK_VERITY_EROFS" not in text
+        or "LATTE_LIVE_BOOT_WRITE_GUARDS_OK" not in text
         or "Initramfs unpacking failed" in text
     ):
         print(text[-24000:])
         raise SystemExit("QEMU did not confirm verity-backed read-only EROFS /usr")
+    check_full_read(text)
     report = {
         "kernel_version": version, "verity_algorithm": algorithm,
-        "result": "verity-backed read-only EROFS /usr mounted",
+        "result": "all protected /usr blocks read through active dm-verity; read-only EROFS mounted",
+        "full_verification": verification,
         "scope": "Produced UKI kernel/initrd, read-only USB ISO, TCG; not UEFI or hardware validation",
     }
     (output / "boot-smoke.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -190,9 +287,10 @@ if __name__ == "__main__":
     parser.add_argument("image", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--verify-only", action="store_true", help="Verify every data/hash block without QEMU")
     args = parser.parse_args()
     run(
         args.image.resolve(), args.output.resolve(),
         Path(__file__).resolve().parent.parent / "files/kernel/latte-boot.config",
-        args.timeout,
+        args.timeout, args.verify_only,
     )

@@ -20,6 +20,7 @@ integration_fingerprint="$(
         "$repo_root/elements/gnomeos/latte-hardware.bst" \
         "$repo_root/files/latte/90-latte.hwdb" \
         "$repo_root/files/latte/latte.conf" \
+        "$repo_root/files/latte/live-no-boot-writes.conf" \
         "$repo_root/files/latte/00-latte-disable-sysupdate.preset" |
         sha256sum | cut -d' ' -f1
 )"
@@ -86,6 +87,8 @@ if [[ ! -f "$prepared_marker" ]]; then
         "$upstream/files/gnomeos/latte/90-latte.hwdb"
     install -Dm644 "$repo_root/files/latte/latte.conf" \
         "$upstream/files/gnomeos/latte/latte.conf"
+    install -Dm644 "$repo_root/files/latte/live-no-boot-writes.conf" \
+        "$upstream/files/gnomeos/latte/live-no-boot-writes.conf"
     install -Dm644 "$repo_root/files/latte/00-latte-disable-sysupdate.preset" \
         "$upstream/files/gnomeos/latte/00-latte-disable-sysupdate.preset"
     git -C "$upstream" add -- \
@@ -101,6 +104,7 @@ if [[ ! -f "$prepared_marker" ]]; then
         files/gnomeos/check-boot-config.py \
         files/gnomeos/latte/90-latte.hwdb \
         files/gnomeos/latte/latte.conf \
+        files/gnomeos/latte/live-no-boot-writes.conf \
         files/gnomeos/latte/00-latte-disable-sysupdate.preset
 fi
 

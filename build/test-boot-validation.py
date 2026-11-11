@@ -3,9 +3,13 @@
 
 import importlib.util
 from pathlib import Path
+import re
+import shutil
 import stat
+import subprocess
 import tempfile
 import unittest
+import uuid
 
 
 def load(name: str, filename: str):
@@ -21,6 +25,61 @@ fragment = Path(__file__).resolve().parent.parent / "files/kernel/latte-boot.con
 
 
 class BootValidationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("veritysetup"), "veritysetup is required for corruption injection")
+    def test_full_verifier_rejects_data_and_hash_corruption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "data"
+            hashes = root / "hashes"
+            data.write_bytes(b"a" * 4096 + b"b" * 4096 + b"c" * 4096)
+            result = subprocess.check_output(
+                ["veritysetup", "format", "--hash=sha256", str(data), str(hashes)],
+                text=True,
+            )
+            root_hash = re.search(r"Root hash:\s*([0-9a-f]{64})", result).group(1)
+            original = data.read_bytes() + hashes.read_bytes()
+            image = root / "image"
+            image.write_bytes(original)
+            layout = {
+                "sectorsize": 512,
+                "partitions": [
+                    {"type": smoke.USR_TYPE, "uuid": str(uuid.UUID(root_hash[:32])),
+                     "start": 0, "size": data.stat().st_size // 512},
+                    {"type": smoke.VERITY_TYPE, "uuid": str(uuid.UUID(root_hash[32:])),
+                     "start": data.stat().st_size // 512, "size": hashes.stat().st_size // 512},
+                ],
+            }
+            cmdline = (
+                f"usrhash={root_hash} mount.usrfstype=erofs "
+                "systemd.verity_usr_options=panic-on-corruption"
+            )
+            smoke.verify_usr(image, layout, cmdline, root)
+            for offset in (4096, data.stat().st_size + 4096):
+                with self.subTest(corrupt_byte=offset):
+                    damaged = bytearray(original)
+                    damaged[offset] ^= 1
+                    image.write_bytes(damaged)
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        smoke.verify_usr(image, layout, cmdline, root)
+
+    def test_full_read_evidence(self):
+        valid = (
+            "LATTE_FULL_VERITY_READ_OK\nLATTE_VERITY_STATUS_BEGIN\n"
+            "0 6022672 verity V\nLATTE_VERITY_STATUS_END\n"
+        )
+        smoke.check_full_read(valid)
+        smoke.check_full_read(valid.replace("verity V", "verity V -"))
+        smoke.check_full_read(valid.replace("0 6022672", "[ OK ] Console status\n0 6022672"))
+        for invalid in (
+            valid.replace("verity V", "verity C"),
+            valid.replace("verity V", "verity V 1"),
+            valid.replace("LATTE_FULL_VERITY_READ_OK", "not-finished"),
+            valid + "device-mapper: verity: 8:3: data block 17 is corrupted",
+            valid + "I/O error, dev sda, sector 10",
+        ):
+            with self.subTest(evidence=invalid), self.assertRaises(ValueError):
+                smoke.check_full_read(invalid)
+
     def test_probe_finishes_before_initrd_isolation(self):
         self.assertIn("IgnoreOnIsolate=yes", smoke.PROBE_UNIT)
         self.assertIn("Before=initrd-cleanup.service initrd-switch-root.target", smoke.PROBE_UNIT)
@@ -28,7 +87,7 @@ class BootValidationTests(unittest.TestCase):
 
     def test_builtin_requirements(self):
         required = config.requirements(fragment)
-        for key in ("DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD", "CRYPTO_SHA256"):
+        for key in ("DM_VERITY", "EROFS_FS", "EROFS_FS_ZIP_ZSTD", "CRYPTO_SHA256", "AUTOFS_FS"):
             self.assertIn(f"CONFIG_{key}=y", required)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config"

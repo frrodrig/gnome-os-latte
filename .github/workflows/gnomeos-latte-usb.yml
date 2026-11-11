@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            bubblewrap fuse3 lzip ostree pipx qemu-system-x86 mtools binutils
+            bubblewrap fuse3 lzip ostree pipx qemu-system-x86 mtools binutils cryptsetup-bin
           pipx install 'BuildStream==2.6.0'
           pipx inject buildstream \
             'buildstream-plugins==2.5.0' \
@@ -149,6 +149,8 @@ jobs:
             .build/boot-smoke/kernel.config
             .build/boot-smoke/qemu-boot.log
             .build/boot-smoke/boot-smoke.json
+            .build/boot-smoke/verity-verify.log
+            .build/boot-smoke/verity-verify.json
             ${{ runner.temp }}/gnomeos-latte-smoke.log
           if-no-files-found: ignore
           retention-days: 1
