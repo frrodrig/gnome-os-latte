@@ -64,6 +64,36 @@ This used QEMU 8.2.2 TCG and OVMF 2024.02 with the development ESP-addon harness
 before its multi-user-target optimization. It does not validate the new GUI
 callbacks, TPM encryption, a new candidate ISO, physical installation, or OTA.
 
+### Validated staging candidate
+
+[Actions run 43184398315](https://github.com/frrodrig/gnome-os-latte/actions/runs/43184398315)
+completed successfully for source
+`555aaf2c7c6aafc90e05623a870af73a9a1c666a`, version `latte.1`.
+The runner built a 3,360,662,016-byte ISO and reported SHA256
+`ff3f3233eb6d4e3127a5f31f4d256f28e99b09527c945ec61e9d84295e52928d`.
+This checksum comes from the runner, not an independently downloaded ISO.
+
+The eight early-boot tests and ten installer/staging tests passed. Offline
+verity verification and the produced kernel/initrd smoke test passed. The
+installer daemon completed on a new 16 GiB virtual disk; a subsequent UEFI boot
+without the ISO preserved the root marker and read all 3,083,649,024 protected
+`/usr` bytes with healthy dm-verity. The effective kernel configuration contains
+built-in device mapper, dm-crypt, dm-verity, EROFS, autofs, AES and XTS.
+
+These are daemon installation tests against an initially blank virtual USB
+disk, not a graphical erase-dialog test or an eMMC-controller test. The tests
+disable TPM encryption and Secure Boot. The GUI callbacks have unit coverage
+and their installed integration is checked by the smoke test, but actual GTK
+responsiveness, the tablet's earlier hang, encrypted installation, and physical
+hardware compatibility remain unverified.
+
+The matching unsigned kernel/usr/verity candidate set passed its consistency
+check; no update download, signature trust, update reboot, or rollback was
+tested. OTA design remains deferred and production updates remain disabled.
+The workflow skipped binary uploads: neither the ISO nor update payloads were
+published or downloaded to the PC. Only diagnostic artifacts were retained for
+one day and copied locally under `.build/staging-evidence-43184398315/`.
+
 ## Build isolated update candidates
 
 ```sh
