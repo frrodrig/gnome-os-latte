@@ -75,6 +75,8 @@ matching versions across the three transfers, protect the running version,
 keep two UKIs, and request three boot attempts for a newly downloaded UKI.
 They are **not installed or enabled by the image build**. No production keyring,
 URL, timer, publisher, or automatic reboot is configured.
+Workflow runs with a staging version, update candidates, or installation tests
+upload diagnostic evidence only, not the ISO or update payloads.
 
 For isolated staging, a maintainer must separately sign the checksum catalog
 with a throwaway test key and provision only that test public key in the

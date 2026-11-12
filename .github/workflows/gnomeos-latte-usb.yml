@@ -168,7 +168,7 @@ jobs:
             --ovmf-vars /usr/share/OVMF/OVMF_VARS_4M.fd
 
       - name: Upload ISO and checksum (one-day retention)
-        if: success() && steps.build.outcome == 'success' && steps.smoke.outcome == 'success'
+        if: success() && !inputs.staging_updates && !inputs.test_installation && !inputs.staging_version && steps.build.outcome == 'success' && steps.smoke.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: gnomeos-latte-usb-${{ github.run_id }}
