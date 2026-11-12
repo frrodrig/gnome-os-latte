@@ -118,7 +118,11 @@ uploaded as release assets and used as a direct sysupdate URL. Additional
 compression must be measured, not assumed effective on compressed EROFS.
 For the retained run `43027903872`, streaming the complete `/usr` partition
 through XZ preset 0 produced 2,506,144,460 bytes, still over 2 GiB. Stronger
-compression settings have not been measured.
+compression with XZ preset 6 also exceeded the limit: it had already emitted
+2,149,836,019 bytes after reading only 2,805,989,376 bytes of the partition.
+That test stopped at the threshold; the emitted size is a lower bound, not a
+completed archive size. Neither tested preset fits this image. Other compression
+settings have not been measured.
 Possible alternatives are reducing the image, using another permitted
 large-file origin, or implementing a separately reviewed signed chunk-download
 and local-staging layer. Splitting a file without authenticating its manifest,
