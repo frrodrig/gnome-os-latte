@@ -50,6 +50,20 @@ Secure Boot, the tablet, GUI responsiveness, OTA, or recovery. A successful
 kernel/initrd-only smoke test is not a substitute for this test.
 Both VM boots select the multi-user target rather than starting the desktop.
 
+### Observed local installation baseline
+
+The retained ISO from Actions run `43027903872` (source
+`403cbe13e1f216629226e58daa5a590749a9a087`, SHA256
+`82ed2cef6db3d156aab69325768d67f55d38e772bcbaee8ab3426384751c4673`)
+completed the installer-daemon transaction on a new virtual disk. A second UEFI
+boot without the ISO preserved the root marker and read all 3,083,628,544 bytes
+through `/dev/mapper/usr`, which remained healthy (`verity V`).
+Logs and the result are in `.build/uefi-install-usb-serial/`.
+
+This used QEMU 8.2.2 TCG and OVMF 2024.02 with the development ESP-addon harness,
+before its multi-user-target optimization. It does not validate the new GUI
+callbacks, TPM encryption, a new candidate ISO, physical installation, or OTA.
+
 ## Build isolated update candidates
 
 ```sh
