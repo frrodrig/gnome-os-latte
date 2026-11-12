@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test installer callbacks without GTK, DBus, or disk access."""
 
+import ast
 import importlib.util
 from pathlib import Path
 import sys
@@ -79,6 +80,23 @@ class InstallerTransactionTests(unittest.TestCase):
 
 
 class StagingTests(unittest.TestCase):
+    def test_guest_recognizes_usb_serial_without_lsblk_serial(self):
+        helper = next(node for node in ast.parse(vm.GUEST).body
+                      if isinstance(node, ast.FunctionDef) and node.name == "usb_serials")
+        namespace = {}
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), "<guest-helper>", "exec"), namespace)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            usb = root / "usb1/1-1"
+            block = usb / "interface/host0/target0/block/sda"
+            block.mkdir(parents=True)
+            (usb / "idVendor").write_text("46f4")
+            (usb / "serial").write_text("LATTE_STAGING_ONLY\n")
+            (root / "serial").write_text("not-a-usb-device")
+            self.assertEqual(namespace["usb_serials"](block), ["LATTE_STAGING_ONLY"])
+            (usb / "serial").write_text("different-target")
+            self.assertNotIn("LATTE_STAGING_ONLY", namespace["usb_serials"](block))
+
     def test_update_verifier_rejects_mixed_versions_and_malformed_catalog(self):
         names = [
             "latte-kernel-x86-64_latte.1.efi",

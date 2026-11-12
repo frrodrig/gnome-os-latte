@@ -38,7 +38,8 @@ block-device argument. A private ISO copy is instrumented with an additional
 initrd in its live EFI addon to inject the test service; the kernel and protected
 `/usr` are unchanged. No automation is added to the original downloadable ISO.
 The guest identifies
-the unique virtual target by serial and size before calling the installer.
+the unique virtual target by USB sysfs serial and size before calling the
+installer. This does not depend on `lsblk` having a populated serial property.
 
 The first boot invokes the **installer daemon**, not the graphical erase
 dialog, against an initially empty virtual disk. A second boot without the ISO
@@ -47,6 +48,7 @@ requires both markers and writes `result.json`; failures preserve logs and the
 virtual disk. This test disables TPM encryption explicitly and does not test
 Secure Boot, the tablet, GUI responsiveness, OTA, or recovery. A successful
 kernel/initrd-only smoke test is not a substitute for this test.
+Both VM boots select the multi-user target rather than starting the desktop.
 
 ## Build isolated update candidates
 

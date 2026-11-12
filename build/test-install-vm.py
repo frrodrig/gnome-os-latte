@@ -23,6 +23,12 @@ from gi.repository import GLib
 def command(*args):
     return subprocess.check_output(args, text=True)
 
+def usb_serials(block):
+    return [
+        (parent / "serial").read_text().strip() for parent in block.parents
+        if (parent / "idVendor").is_file() and (parent / "serial").is_file()
+    ]
+
 phase, proof = sys.argv[1:]
 if phase == "auto":
     phase = "install" if "root=live:gnomeos" in pathlib.Path("/proc/cmdline").read_text() else "installed"
@@ -41,8 +47,13 @@ if phase == "installed":
 else:
     assert "root=live:gnomeos" in pathlib.Path("/proc/cmdline").read_text()
     devices = json.loads(command("lsblk", "-J", "-b", "-d", "-o", "NAME,SIZE,SERIAL,RO,TYPE"))["blockdevices"]
-    targets = [d for d in devices if d.get("serial") == "LATTE_STAGING_ONLY"
-               and d["size"] == 17179869184 and not d["ro"] and d["type"] == "disk"]
+    for device in devices:
+        sysfs = pathlib.Path("/sys/class/block", device["name"]).resolve(strict=True)
+        assert sysfs.is_relative_to("/sys/devices"), "Unexpected block device sysfs path"
+        device["usb_serials"] = usb_serials(sysfs)
+    print("LATTE_STAGING_DEVICES=" + json.dumps(devices), flush=True)
+    targets = [d for d in devices if "LATTE_STAGING_ONLY" in d["usb_serials"]
+               and int(d["size"]) == 17179869184 and not d["ro"] and d["type"] == "disk"]
     assert len(targets) == 1, "Missing unique disposable virtual target"
     name = targets[0]["name"]
     assert not pathlib.Path("/sys/class/block", name, "partition").exists()
@@ -189,7 +200,7 @@ def run(iso: Path, output: Path, code: Path, variables: Path, timeout: int) -> N
             "-device", "qemu-xhci,id=xhci",
             "-drive", f"if=none,id=target,format=raw,file={disk}",
             "-device", f"usb-storage,bus=xhci.0,drive=target,removable=off,serial={SERIAL},bootindex=1",
-            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=console=ttyS0 systemd.show_status=1",
+            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=console=ttyS0 systemd.show_status=1 systemd.unit=multi-user.target",
         ]
         if os.environ.get("QEMU_DATA_DIR"):
             command.extend(["-L", os.environ["QEMU_DATA_DIR"]])
