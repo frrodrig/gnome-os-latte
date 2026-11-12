@@ -34,4 +34,8 @@ The configuration disables GNOME OS image-update services to prevent them from r
 
 ## Support status
 
+Installation and OTA development is isolated in [installation and update
+staging](docs/INSTALL-AND-UPDATES.md). It does not enable a production update
+channel or establish a working installation on the tablet.
+
 GNOME OS Preview is experimental. The first physical USB boot failed because the kernel lacked dm-verity and EROFS. The replacement reached GNOME briefly, then panicked with `dm-verity device corrupted`. The retained ISO passes full offline verification and a complete protected-device read in QEMU; the tablet's USB/read path remains under investigation. See [read-only USB diagnostics and boot-test details](docs/BUILD.md). Stable boot, touchscreen, rotation, suspend, battery, Wi-Fi, audio, and cameras remain unverified. Live bootloader-writing services are now explicitly guarded, separately from the corruption investigation.

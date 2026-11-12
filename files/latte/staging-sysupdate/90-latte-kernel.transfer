@@ -1,0 +1,22 @@
+# Isolated VM staging only. Not installed or enabled in the USB image.
+[Transfer]
+ProtectVersion=%A
+Verify=true
+InstancesMax=2
+
+[Source]
+Type=url-file
+Path=http://10.0.2.2:8080/
+MatchPattern=latte-kernel-%a_@v.efi
+
+[Target]
+Type=regular-file
+Path=/EFI/Linux
+PathRelativeTo=boot
+MatchPattern=gnomeos_@v+@l-@d.efi \
+             gnomeos_@v+@l.efi \
+             gnomeos_@v.efi
+Mode=0600
+TriesLeft=3
+TriesDone=0
+InstancesMax=2

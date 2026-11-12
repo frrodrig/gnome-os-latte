@@ -207,6 +207,8 @@ grep -Eq '^crypt[[:space:]]' /run/latte-dm-targets
 echo LATTE_DM_CRYPT_TARGET_OK
 grep -Eq '^[^ ]+ /sysroot/usr erofs ro(,| )' /proc/mounts
 test -s /sysroot/usr/lib/os-release
+test -s /sysroot/usr/lib/gnomeos-installer/installer_transaction.py
+grep -q 'reply_handler=on_ready' /sysroot/usr/lib/gnomeos-installer/installer.py
 test -s /sysroot/usr/lib/udev/hwdb.d/90-latte.hwdb
 test -s /sysroot/usr/lib/modules-load.d/latte.conf
 test -s /sysroot/usr/lib/systemd/system-preset/00-latte-disable-sysupdate.preset

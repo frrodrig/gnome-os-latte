@@ -1,0 +1,18 @@
+# Isolated VM staging only. Not installed or enabled in the USB image.
+[Transfer]
+ProtectVersion=%A
+Verify=true
+InstancesMax=2
+
+[Source]
+Type=url-file
+Path=http://10.0.2.2:8080/
+MatchPattern=latte-usr-%a_@v_@u.raw
+
+[Target]
+Type=partition
+Path=/
+MatchPattern=gnomeos_usr_@v
+MatchPartitionType=usr
+ReadOnly=true
+PartitionFlags=0
