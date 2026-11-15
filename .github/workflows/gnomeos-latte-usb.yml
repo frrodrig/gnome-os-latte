@@ -26,6 +26,10 @@ on:
         description: "Test installer daemon and installed UEFI boot on a new virtual disk"
         type: boolean
         default: false
+      upload_installed_disk:
+        description: "With test_installation: also upload the live ISO and the installed (persistent) disk, one-day retention"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -166,6 +170,34 @@ jobs:
             --output .build/install-test \
             --ovmf-code /usr/share/OVMF/OVMF_CODE_4M.fd \
             --ovmf-vars /usr/share/OVMF/OVMF_VARS_4M.fd
+
+      - name: Compress installed disk
+        id: compress
+        if: success() && inputs.test_installation && inputs.upload_installed_disk && !inputs.staging_updates && !inputs.staging_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install --yes --no-install-recommends zstd
+          mkdir -p .build/installed-out
+          zstd -T0 -3 --sparse -o .build/installed-out/installed-disk.raw.zst .build/install-test/disposable.raw
+          cp .build/out/disk.iso .build/installed-out/disk.iso
+          (cd .build/installed-out && sha256sum disk.iso installed-disk.raw.zst \
+            && zstd -dc installed-disk.raw.zst | sha256sum | sed 's/-$/installed-disk.raw (uncompressed)/') \
+            | tee .build/installed-out/SHA256SUMS
+          du -h .build/installed-out/*
+
+      - name: Upload live ISO and installed disk (one-day retention)
+        if: steps.compress.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gnomeos-latte-live-and-installed-${{ github.run_id }}
+          path: |
+            .build/installed-out/disk.iso
+            .build/installed-out/installed-disk.raw.zst
+            .build/installed-out/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       - name: Upload ISO and checksum (one-day retention)
         if: success() && !inputs.staging_updates && !inputs.test_installation && !inputs.staging_version && steps.build.outcome == 'success' && steps.smoke.outcome == 'success'
