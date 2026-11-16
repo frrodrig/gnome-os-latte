@@ -73,6 +73,7 @@ else:
         loop.quit()
     installer.connect_to_signal("InstallationFinished", finished)
     installer.connect_to_signal("InstallationFailed", failed)
+    installer.EraseDisk(name, timeout=600)
     installer.Install(name, False, reply_handler=lambda key: None, error_handler=failed)
     GLib.timeout_add_seconds(1200, lambda: failed("Install timed out"))
     loop.run()

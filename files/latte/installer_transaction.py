@@ -3,7 +3,7 @@
 import dbus
 
 
-def begin_installation(block, installer, device, oem_mode, erase, on_ready, on_error):
+def begin_installation(installer, device, oem_mode, erase, on_ready, on_error):
     """Keep GTK responsive; never start installation after failed preparation."""
     def failed(stage, error):
         on_error(f"{stage}: {error}. Disk state may have changed; collect logs before retrying")
@@ -19,9 +19,8 @@ def begin_installation(block, installer, device, oem_mode, erase, on_ready, on_e
 
     if erase:
         try:
-            block.Format(
-                "empty", {}, signature="sa{sv}", timeout=600,
-                dbus_interface="org.freedesktop.UDisks2.Block",
+            installer.erase_disk(
+                device,
                 reply_handler=install,
                 error_handler=lambda error: failed("Disk preparation failed", error),
             )

@@ -37,12 +37,12 @@ updates = load_build_module("updates", "verify-staging-updates.py")
 
 class InstallerTransactionTests(unittest.TestCase):
     def setUp(self):
-        self.block, self.installer = Mock(), Mock()
+        self.installer = Mock()
         self.ready, self.error = Mock(), Mock()
 
     def start(self, erase=True):
         transaction.begin_installation(
-            self.block, self.installer, "virtual-test-only", False, erase,
+            self.installer, "virtual-test-only", False, erase,
             self.ready, self.error,
         )
 
@@ -50,14 +50,14 @@ class InstallerTransactionTests(unittest.TestCase):
         self.start()
         self.installer.install.assert_not_called()
         self.ready.assert_not_called()
-        self.block.Format.call_args.kwargs["reply_handler"]()
+        self.installer.erase_disk.call_args.kwargs["reply_handler"]()
         self.installer.install.assert_called_once()
         self.installer.install.call_args.args[2]("test-key")
         self.ready.assert_called_once_with("test-key")
 
     def test_failed_erase_never_starts_installation(self):
         self.start()
-        self.block.Format.call_args.kwargs["error_handler"](DBusException("NoReply"))
+        self.installer.erase_disk.call_args.kwargs["error_handler"](DBusException("NoReply"))
         self.installer.install.assert_not_called()
         self.assertIn("Disk preparation failed", self.error.call_args.args[0])
 
@@ -65,7 +65,7 @@ class InstallerTransactionTests(unittest.TestCase):
         for stage in ("erase", "install"):
             with self.subTest(stage=stage):
                 self.setUp()
-                target = self.block.Format if stage == "erase" else self.installer.install
+                target = self.installer.erase_disk if stage == "erase" else self.installer.install
                 target.side_effect = DBusException("AccessDenied")
                 self.start(erase=stage == "erase")
                 self.error.assert_called_once()
@@ -73,7 +73,7 @@ class InstallerTransactionTests(unittest.TestCase):
 
     def test_empty_disk_skips_erase_and_install_failure_is_reported(self):
         self.start(erase=False)
-        self.block.Format.assert_not_called()
+        self.installer.erase_disk.assert_not_called()
         self.installer.install.call_args.args[3](DBusException("daemon unavailable"))
         self.assertIn("Starting installation failed", self.error.call_args.args[0])
         self.ready.assert_not_called()

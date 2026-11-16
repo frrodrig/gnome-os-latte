@@ -17,7 +17,11 @@ The UI adaptation submits erase and install requests asynchronously, shows
 progress before preparing the disk, and reports DBus errors without starting
 installation after failed preparation. A timeout does not mean an erase was
 rolled back. Do not retry destructive operations without inspecting the state.
-The installer daemon's actual partitioning transaction remains upstream.
+The erase step no longer uses udisks2 (its wait for udev objects timed out on the
+tablet's eMMC). A patch adds an `EraseDisk` method to the installer daemon, protected by the
+same polkit action as `Install`, which refuses mounted disks and runs `wipefs --all`.
+It is built by the Actions run and exercised by the VM test, but not validated on the tablet.
+The daemon's actual partitioning transaction remains upstream.
 The kernel also requires dm-crypt for the installer's TPM-encrypted-root path.
 
 ## Disposable UEFI VM test
