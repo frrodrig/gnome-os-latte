@@ -93,7 +93,7 @@ async fn run_tool(program: &str, args: &[&str]) -> Result<(), String> {
     if status.success() { Ok(()) } else { Err(format!("{program} failed: {status}")) }
 }
 
-// Wipe signatures without udisks2, whose wait for udev objects times out on the Mi Pad 2 eMMC.
+// Prepare the disk without the UDisks Format transaction.
 async fn erase_device(device: &str) -> Result<(), String> {
     if device.is_empty() || !device.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(format!("invalid device name {device:?}"));
@@ -104,8 +104,8 @@ async fn erase_device(device: &str) -> Result<(), String> {
         return Err(format!("{path} or one of its partitions is mounted"));
     }
     run_tool("wipefs", &["--all", "--force", &path]).await?;
-    let _ = run_tool("blockdev", &["--rereadpt", &path]).await;
-    let _ = run_tool("udevadm", &["settle", "--timeout=30"]).await;
+    run_tool("blockdev", &["--rereadpt", &path]).await?;
+    run_tool("udevadm", &["settle", "--timeout=30"]).await?;
     Ok(())
 }
 
@@ -139,7 +139,11 @@ DAEMON_METHOD = """    async fn erase_disk(&self,
         if !auth_result.is_authorized {
             return Err(Failed("Not allowed!".to_string()))
         }
-        erase_device(device).await.map_err(Failed)
+        // zbus dispatches on its own executor, outside Tokio's reactor.
+        let device = device.to_string();
+        self.runtime.spawn(async move { erase_device(&device).await })
+            .await.map_err(|error| Failed(format!("Disk preparation task failed: {error}")))?
+            .map_err(Failed)
     }
 
 """
@@ -147,6 +151,11 @@ DAEMON_METHOD = """    async fn erase_disk(&self,
 
 def patch_daemon(root: Path) -> None:
     daemon = root / "files/gnomeos/live/proto-installer/daemon/main.rs"
+    replace_once(daemon, "struct InstallerObject {\n",
+                 "struct InstallerObject {\n    runtime: tokio::runtime::Handle,\n")
+    replace_once(daemon, "            has_tpm2 : has_tpm2,\n",
+                 "            runtime: tokio::runtime::Handle::current(),\n"
+                 "            has_tpm2 : has_tpm2,\n")
     replace_once(daemon, "#[interface(name = \"org.gnome.Installer1\")]\n",
                  DAEMON_HELPERS + "#[interface(name = \"org.gnome.Installer1\")]\n")
     replace_once(daemon, "    #[zbus(signal)]\n    async fn installation_finished(",

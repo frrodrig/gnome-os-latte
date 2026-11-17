@@ -17,10 +17,15 @@ The UI adaptation submits erase and install requests asynchronously, shows
 progress before preparing the disk, and reports DBus errors without starting
 installation after failed preparation. A timeout does not mean an erase was
 rolled back. Do not retry destructive operations without inspecting the state.
-The erase step no longer uses udisks2 (its wait for udev objects timed out on the
-tablet's eMMC). A patch adds an `EraseDisk` method to the installer daemon, protected by the
+The erase step no longer uses UDisks2. The earlier tablet traceback showed
+`Block.Format` returning `NoReply`; it did not identify why UDisks stopped
+responding or establish the final eMMC state.
+A patch adds an `EraseDisk` method to the installer daemon, protected by the
 same polkit action as `Install`, which refuses mounted disks and runs `wipefs --all`.
-It is built by the Actions run and exercised by the VM test, but not validated on the tablet.
+Preparation-tool failures are returned rather than silently ignored.
+The method dispatches process operations onto the daemon's saved Tokio runtime:
+zbus's executor does not itself provide a Tokio reactor.
+This replacement path is not validated on the tablet.
 The daemon's actual partitioning transaction remains upstream.
 The kernel also requires dm-crypt for the installer's TPM-encrypted-root path.
 
@@ -46,13 +51,40 @@ the unique virtual target by USB sysfs serial and size before calling the
 installer. This does not depend on `lsblk` having a populated serial property.
 
 The first boot invokes the **installer daemon**, not the graphical erase
-dialog, against an initially empty virtual disk. A second boot without the ISO
+dialog. The new virtual disk starts with a GPT and a 2 GiB Linux partition;
+the guest requires a partition before `EraseDisk` and no partitions afterwards,
+then calls `Install`. A second boot without the ISO
 checks UEFI, persistent root data, and a complete active dm-verity read. Success
 requires both markers and writes `result.json`; failures preserve logs and the
 virtual disk. This test disables TPM encryption explicitly and does not test
 Secure Boot, the tablet, GUI responsiveness, OTA, or recovery. A successful
 kernel/initrd-only smoke test is not a substitute for this test.
 Both VM boots select the multi-user target rather than starting the desktop.
+
+Actions keeps this full regression **optional** (`test_installation`, default
+false) because it creates a 16 GiB test disk and runs two emulated UEFI boots.
+Enable it when changing the daemon, erase path, layout or boot integration.
+Skipping it loses coverage of `EraseDisk`, partitioning, installation, persistent
+root and installed UEFI boot; it is not evidence that installation works.
+The independent kernel/initrd/complete-verity smoke remains mandatory on every
+image build. When requested, installation failure still fails the workflow and
+blocks the ISO upload; it is not ignored to obtain a successful build.
+
+The only binary delivery is the live `disk.iso` and `SHA256SUMS`, including
+successful non-staging runs that opt into installation testing. The disposable
+disk and instrumented ISO copy are test inputs, never compressed or uploaded.
+There is no preinstalled-disk export option or physical-disk flashing helper.
+
+### EraseDisk regression in run 43949330889
+
+The live ISO built successfully and passed the independent full verity and
+kernel/initrd smoke checks. The optional installation test failed before
+`Install`: the daemon's zbus executor panicked in Tokio's `pidfd_reaper.rs`
+with `there is no reactor running`. The new `EraseDisk` method had invoked
+`tokio::process::Command` outside Tokio's runtime. After 600 seconds, its
+caller received `NoReply`; the installed-disk compression/upload never ran.
+The saved-runtime dispatch addresses this demonstrated software defect, not
+the unidentified cause of the earlier tablet UDisks timeout.
 
 ### Observed local installation baseline
 
@@ -123,7 +155,7 @@ matching versions across the three transfers, protect the running version,
 keep two UKIs, and request three boot attempts for a newly downloaded UKI.
 They are **not installed or enabled by the image build**. No production keyring,
 URL, timer, publisher, or automatic reboot is configured.
-Workflow runs with a staging version, update candidates, or installation tests
+Workflow runs with a staging version or update candidates
 upload diagnostic evidence only, not the ISO or update payloads.
 
 For isolated staging, a maintainer must separately sign the checksum catalog

@@ -80,6 +80,30 @@ class InstallerTransactionTests(unittest.TestCase):
 
 
 class StagingTests(unittest.TestCase):
+    def test_daemon_preserves_runtime_for_zbus_process_requests(self):
+        source = (
+            "struct InstallerObject {\n    has_tpm2 : bool,\n}\n"
+            "impl InstallerObject {\n"
+            "    fn new() -> Self {\n        Self {\n"
+            "            has_tpm2 : has_tpm2,\n        }\n    }\n}\n"
+            '#[interface(name = "org.gnome.Installer1")]\n'
+            "impl InstallerObject {\n"
+            "    #[zbus(signal)]\n    async fn installation_finished(\n"
+            "}\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            daemon = root / "files/gnomeos/live/proto-installer/daemon/main.rs"
+            daemon.parent.mkdir(parents=True)
+            daemon.write_text(source)
+            prepare.patch_daemon(root)
+            patched = daemon.read_text()
+            prepare.patch_daemon(root)
+            self.assertEqual(patched, daemon.read_text())
+            self.assertIn("runtime: tokio::runtime::Handle::current()", patched)
+            self.assertIn("self.runtime.spawn(async move { erase_device(&device).await })", patched)
+            self.assertNotIn("let _ = run_tool", patched)
+
     def test_guest_recognizes_usb_serial_without_lsblk_serial(self):
         helper = next(node for node in ast.parse(vm.GUEST).body
                       if isinstance(node, ast.FunctionDef) and node.name == "usb_serials")
@@ -144,8 +168,12 @@ class StagingTests(unittest.TestCase):
 
     def test_vm_uses_new_regular_disk_and_removes_iso_for_second_boot(self):
         commands = []
+        partition_commands = []
 
         def fake_run(command, **kwargs):
+            if command[0] == "sfdisk":
+                partition_commands.append((command, kwargs))
+                return types.SimpleNamespace(returncode=0)
             commands.append(command)
             marker = ("LATTE_STAGING_INSTALL_OK" if len(commands) == 1
                       else "LATTE_STAGING_INSTALLED_BOOT_OK")
@@ -163,6 +191,8 @@ class StagingTests(unittest.TestCase):
                     patch.object(vm.subprocess, "run", side_effect=fake_run):
                 vm.run(paths[0], root / "output", paths[1], paths[2], 1)
                 self.assertEqual((root / "output/disposable.raw").stat().st_size, 512)
+                self.assertEqual(partition_commands[0][0], ["sfdisk", str(root / "output/disposable.raw")])
+                self.assertEqual(partition_commands[0][1]["input"], "label: gpt\nsize=2G,type=linux\n")
                 self.assertTrue(any("id=live" in arg for arg in commands[0]))
                 self.assertFalse(any("id=live" in arg for arg in commands[1]))
                 self.assertTrue(any("readonly=on" in arg and "id=live" in arg for arg in commands[0]))

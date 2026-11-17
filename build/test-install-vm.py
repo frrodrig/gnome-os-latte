@@ -57,6 +57,8 @@ else:
     assert len(targets) == 1, "Missing unique disposable virtual target"
     name = targets[0]["name"]
     assert not pathlib.Path("/sys/class/block", name, "partition").exists()
+    partitions = json.loads(command("lsblk", "-J", "/dev/" + name))["blockdevices"][0].get("children", [])
+    assert partitions, "Missing pre-existing disposable GPT partition"
     marker.write_text(proof)
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
@@ -73,7 +75,11 @@ else:
         loop.quit()
     installer.connect_to_signal("InstallationFinished", finished)
     installer.connect_to_signal("InstallationFailed", failed)
+    print("LATTE_STAGING_ERASE_BEGIN", flush=True)
     installer.EraseDisk(name, timeout=600)
+    partitions = json.loads(command("lsblk", "-J", "/dev/" + name))["blockdevices"][0].get("children", [])
+    assert not partitions, "Disposable GPT partitions remained after EraseDisk"
+    print("LATTE_STAGING_ERASE_OK", flush=True)
     installer.Install(name, False, reply_handler=lambda key: None, error_handler=failed)
     GLib.timeout_add_seconds(1200, lambda: failed("Install timed out"))
     loop.run()
@@ -186,6 +192,10 @@ def run(iso: Path, output: Path, code: Path, variables: Path, timeout: int) -> N
     disk = output / "disposable.raw"
     with disk.open("xb") as file:
         file.truncate(DISK_BYTES)
+    subprocess.run(
+        ["sfdisk", str(disk)], input="label: gpt\nsize=2G,type=linux\n",
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+    )
     nvram = output / "vm-only-vars.fd"
     shutil.copyfile(variables, nvram)
     proof = uuid.uuid4().hex
@@ -218,7 +228,7 @@ def run(iso: Path, output: Path, code: Path, variables: Path, timeout: int) -> N
         if result.returncode or expected not in text:
             raise SystemExit(f"VM {phase} failed; inspect {log}. The disposable disk is preserved.")
     (output / "result.json").write_text(json.dumps({
-        "result": "installer daemon completed; UEFI installed boot without ISO and persistent root verified",
+        "result": "EraseDisk removed disposable GPT; installer daemon completed; UEFI installed boot without ISO and persistent root verified",
         "iso": str(iso), "virtual_disk_bytes": DISK_BYTES,
         "scope": "ESP-addon-instrumented ISO copy; QEMU TCG, no TPM or Secure Boot; not physical hardware or OTA validation",
     }, indent=2) + "\n")
