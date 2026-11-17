@@ -86,6 +86,27 @@ caller received `NoReply`; the installed-disk compression/upload never ran.
 The saved-runtime dispatch addresses this demonstrated software defect, not
 the unidentified cause of the earlier tablet UDisks timeout.
 
+### Validated replacement erase path
+
+[Actions run 44055707855](https://github.com/frrodrig/gnome-os-latte/actions/runs/44055707855)
+passed for source `b2ca8d73f28af174f26ea05fd53b159492829d0a`, with
+`test_installation=true`. The guest reported `LATTE_STAGING_ERASE_OK` after
+removing the disposable GPT partitions, then `LATTE_STAGING_INSTALL_OK`.
+A second UEFI boot without the ISO preserved the root marker and reported
+`LATTE_STAGING_INSTALLED_BOOT_OK`, reading the complete 3,083,665,408-byte
+protected `/usr` with healthy dm-verity. This directly exercises the corrected
+daemon method; it does not exercise the GTK dialog or the tablet's eMMC.
+TPM encryption, Secure Boot and OTA remain outside this test.
+
+The independent full-verity/kernel smoke also passed. The runner reported
+ISO SHA256 `16ff668841fa4842574d556289d6fdc87da94cecfe8cf554871e6859d71fb4ad`
+and UKI `usrhash`
+`f79ae2d5e9262b99ef7711a9aa9b557a11e867f7378ce992316d06167efededa`.
+Only the live ISO/checksum binary artifact was uploaded, with one-day
+retention; no installed disk was exported. The ISO was not downloaded to
+the local PC during this validation. Small diagnostic evidence was retained
+locally under `.build/run-44055707855-evidence/`.
+
 ### Observed local installation baseline
 
 The retained ISO from Actions run `43027903872` (source
