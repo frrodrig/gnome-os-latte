@@ -22,6 +22,9 @@ The script:
 
 The kernel revision is pinned as well. Transitive dependencies and the Freedesktop SDK junction use the revisions defined by the pinned GNOME Build Meta commit. BuildStream stores source and artifact data in its configured cache, usually outside `.build/`.
 
+The preparation step pins `thermald` by its existing commit SHA rather than
+the unavailable `v2.15.10` Git tag. Its source revision is unchanged.
+
 The hardware defconfig is merged with `files/kernel/latte-boot.config`. The build
 checks the **resolved** `.config` after `olddefconfig`, not just the requested
 fragment. Device mapper, dm-verity, SHA-256, EROFS (including Zstandard), USB

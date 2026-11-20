@@ -169,6 +169,16 @@ def set_staging_version(root: Path, version: str) -> None:
                  "image-version: 'l.1'", f"image-version: '{version}'")
 
 
+def pin_thermald_commit(root: Path) -> None:
+    # The upstream tag disappeared, but the pinned commit is still fetchable.
+    commit = "88369b42ec523787081b9bf8811b364e2a3d5f2d"
+    replace_once(
+        root / "elements/gnomeos-deps/thermald.bst",
+        f"  ref: v2.15.10-0-g{commit}\n",
+        f"  ref-format: sha1\n  ref: {commit}\n",
+    )
+
+
 def main() -> None:
     if len(sys.argv) not in (2, 3):
         raise SystemExit("usage: prepare-upstream.py GNOME-BUILD-META-CHECKOUT [STAGING-VERSION]")
@@ -177,6 +187,7 @@ def main() -> None:
         set_staging_version(root, sys.argv[2])
     patch_installer(root)
     patch_daemon(root)
+    pin_thermald_commit(root)
 
     replace_once(
         root / "elements/gnomeos/signed-boot.bst",

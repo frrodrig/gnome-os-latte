@@ -80,6 +80,18 @@ class InstallerTransactionTests(unittest.TestCase):
 
 
 class StagingTests(unittest.TestCase):
+    def test_thermald_pin_preserves_commit_without_requiring_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            element = root / "elements/gnomeos-deps/thermald.bst"
+            element.parent.mkdir(parents=True)
+            commit = "88369b42ec523787081b9bf8811b364e2a3d5f2d"
+            source = "sources:\n- kind: git_repo\n  url: github:intel/thermal_daemon.git\n"
+            element.write_text(f"{source}  ref: v2.15.10-0-g{commit}\n")
+            for _ in range(2):
+                prepare.pin_thermald_commit(root)
+                self.assertEqual(element.read_text(), f"{source}  ref-format: sha1\n  ref: {commit}\n")
+
     def test_daemon_preserves_runtime_for_zbus_process_requests(self):
         source = (
             "struct InstallerObject {\n    has_tpm2 : bool,\n}\n"
