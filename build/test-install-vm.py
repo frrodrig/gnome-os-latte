@@ -41,6 +41,13 @@ marker = pathlib.Path("/var/lib/latte-staging-proof")
 if phase == "installed":
     assert "root=live:gnomeos" not in pathlib.Path("/proc/cmdline").read_text()
     assert marker.read_text() == proof, "Persistent root was not preserved"
+    assert pathlib.Path("/sys/module/zswap/parameters/enabled").read_text().strip() == "Y", "zswap is disabled"
+    swaps = pathlib.Path("/proc/swaps").read_text()
+    print(swaps, flush=True)
+    backing = pathlib.Path("/dev/disk/by-label/default-swap").resolve(strict=True)
+    assert any(pathlib.Path(row.split()[0]).resolve() == backing and int(row.split()[2]) > 0
+               for row in swaps.splitlines()[1:]), "GNOME OS backing swap is not active"
+    print("LATTE_INSTALLED_SWAP_OK", flush=True)
     subprocess.run(["dd", "if=/dev/mapper/usr", "of=/dev/null", "bs=4M"], check=True)
     assert "verity V" in command("dmsetup", "status", "usr")
     print("LATTE_STAGING_INSTALLED_BOOT_OK", flush=True)
@@ -119,11 +126,11 @@ def instrument_iso(iso: Path, destination: Path, directory: Path, proof: str) ->
     spec.loader.exec_module(smoke)
     unit = (
         "[Unit]\n"
-        "After=systemd-tmpfiles-setup.service dbus.service\n"
+        "After=systemd-tmpfiles-setup.service dbus.service swap.target\n"
         "Wants=dbus.service\n[Service]\nType=oneshot\n"
         f"ExecStart=/usr/bin/python3 /etc/latte-staging.py auto {proof}\n"
         "StandardOutput=journal+console\nStandardError=journal+console\nTimeoutStartSec=1300\n"
-        "ExecStopPost=/usr/bin/journalctl -b --no-pager -u gnomeos-installer.service\n"
+        "ExecStopPost=/usr/bin/journalctl -b --no-pager -u gnomeos-installer.service -u zswap-setup@*.service -u *.swap\n"
         "ExecStopPost=/usr/bin/systemctl --no-block poweroff\n"
     )
     dropin = "[Service]\nEnvironment=GNOMEOS_INSTALL_DISABLE_TPM=1\nEnvironment=RUST_LOG=debug\n"
@@ -225,10 +232,10 @@ def run(iso: Path, output: Path, code: Path, variables: Path, timeout: int) -> N
             result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout)
         text = log.read_text(errors="replace")
         expected = "LATTE_STAGING_INSTALL_OK" if phase == "install" else "LATTE_STAGING_INSTALLED_BOOT_OK"
-        if result.returncode or expected not in text:
+        if result.returncode or expected not in text or (phase == "installed" and "LATTE_INSTALLED_SWAP_OK" not in text):
             raise SystemExit(f"VM {phase} failed; inspect {log}. The disposable disk is preserved.")
     (output / "result.json").write_text(json.dumps({
-        "result": "EraseDisk removed disposable GPT; installer daemon completed; UEFI installed boot without ISO and persistent root verified",
+        "result": "EraseDisk removed disposable GPT; installer daemon completed; UEFI installed boot without ISO, persistent root, and active zswap backing verified",
         "iso": str(iso), "virtual_disk_bytes": DISK_BYTES,
         "scope": "ESP-addon-instrumented ISO copy; QEMU TCG, no TPM or Secure Boot; not physical hardware or OTA validation",
     }, indent=2) + "\n")

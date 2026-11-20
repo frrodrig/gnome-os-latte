@@ -176,7 +176,7 @@ class StagingTests(unittest.TestCase):
                 return types.SimpleNamespace(returncode=0)
             commands.append(command)
             marker = ("LATTE_STAGING_INSTALL_OK" if len(commands) == 1
-                      else "LATTE_STAGING_INSTALLED_BOOT_OK")
+                      else "LATTE_INSTALLED_SWAP_OK\nLATTE_STAGING_INSTALLED_BOOT_OK")
             kwargs["stdout"].write(marker.encode())
             return types.SimpleNamespace(returncode=0)
 
@@ -191,7 +191,7 @@ class StagingTests(unittest.TestCase):
                     patch.object(vm.subprocess, "run", side_effect=fake_run):
                 vm.run(paths[0], root / "output", paths[1], paths[2], 1)
                 self.assertEqual((root / "output/disposable.raw").stat().st_size, 512)
-                self.assertEqual(partition_commands[0][0], ["sfdisk", str(root / "output/disposable.raw")])
+                self.assertEqual(partition_commands[0][0], ["sfdisk", str((root / "output/disposable.raw").resolve())])
                 self.assertEqual(partition_commands[0][1]["input"], "label: gpt\nsize=2G,type=linux\n")
                 self.assertTrue(any("id=live" in arg for arg in commands[0]))
                 self.assertFalse(any("id=live" in arg for arg in commands[1]))
