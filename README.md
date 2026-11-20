@@ -2,7 +2,7 @@
 
 An initial GNOME OS Preview 51 prototype for testing from an external USB drive. It does not install GNOME OS on the tablet or modify postmarketOS or the eMMC.
 
-This adaptation is based on official GNOME OS and BuildStream, not Arch Linux. It pins GNOME Build Meta to commit `8a89846df11e86cee57c728a86a247e61d604b84` and the Xiaomi Mi Pad 2 kernel (`xiaomi-latte-dev/linux_latte`) to commit `575dbb62ac89c5e3e49f98c386255178e29c9ec5`. It keeps the generic x86-64 CPU baseline and does not enable `x86_64_v3`.
+This adaptation is based on official GNOME OS and BuildStream, not Arch Linux. Each build defaults to the newest stable GNOME Build Meta release tag and the latest published stable Linux Latte release. It records both tags and exact commits, without building unpublished branch tips. It keeps the generic x86-64 CPU baseline and does not enable `x86_64_v3`.
 
 ## Build
 

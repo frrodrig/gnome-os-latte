@@ -80,6 +80,128 @@ class InstallerTransactionTests(unittest.TestCase):
 
 
 class StagingTests(unittest.TestCase):
+    def test_stable_installer_confirms_only_the_selected_partitioned_disk(self):
+        source = (
+            "class Udisks:\n"
+            "    def get_disks(self):\n"
+            + prepare.STABLE_PARTITION_ERROR
+            + "                pass\n"
+            "            elif size != 0 and size < 30*1024*1024*1024:\n"
+            "                pass\n"
+            "            ret.append((os.path.relpath(device, '/dev'), model, size, media, invalid))\n"
+            "class DiskRow:\n"
+            "    def __init__(self, name, description, size, media, invalid):\n"
+            "        super().__init__()\n"
+            "class App:\n"
+            "    def load(self):\n"
+            "        for name, description, size, media, invalid in self.udisks.get_disks():\n"
+            "            disk_selector.DiskList.append(DiskRow(name, description, size, media, invalid))\n"
+            "class InstallButton:\n"
+            "    def doInstall(self, *args):\n"
+            "        selected_row = self._selector.DiskList.get_selected_row()\n"
+            "        recovery_key = self._installer.install(selected_row.get_device_name(), self._oem_mode)\n"
+            "        self._app.display_recovery(recovery_key)\n"
+        )
+        # The discovery fixture supplies the preceding body to match the real method.
+        source = source.replace("            if path in partition_table_type:", "        for path in blocks:\n            if path in partition_table_type:", 1)
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "installer.py"
+            installer.write_text(source)
+            prepare.patch_stable_installer(installer)
+            dialog = Mock()
+            adw = types.SimpleNamespace(AlertDialog=Mock(return_value=dialog),
+                                        ResponseAppearance=types.SimpleNamespace(DESTRUCTIVE=object()))
+            namespace = {"Adw": adw, "_": lambda message: message}
+            exec(compile(installer.read_text(), str(installer), "exec"), namespace)
+
+        for action in ("cancel", "changed", "erase", "empty", "no-selection", "invalid"):
+            with self.subTest(action=action):
+                button = namespace["InstallButton"]()
+                button._app = Mock()
+                button._oem_mode = False
+                button._selector = Mock()
+                button.set_sensitive = Mock()
+                row = Mock(needs_erase=(action != "empty"))
+                row.get_selectable.return_value = action != "invalid"
+                row.get_device_name.return_value = "virtual-only"
+                selected = button._selector.DiskList.get_selected_row
+                selected.return_value = None if action == "no-selection" else row
+                adw.AlertDialog.reset_mock()
+                button.doInstall()
+                if action in ("empty", "no-selection", "invalid"):
+                    adw.AlertDialog.assert_not_called()
+                    if action == "empty":
+                        button._app.begin_installation.assert_called_once_with(row, False, erase=False)
+                    else:
+                        button._app.begin_installation.assert_not_called()
+                    continue
+                button._app.begin_installation.assert_not_called()
+                self.assertIn("/dev/virtual-only", adw.AlertDialog.call_args.kwargs["body"])
+                callback = dialog.choose.call_args.args[2]
+                dialog.choose_finish.return_value = "cancel" if action == "cancel" else "erase"
+                if action == "changed":
+                    selected.return_value = Mock()
+                callback(dialog, object())
+                if action == "erase":
+                    button._app.begin_installation.assert_called_once_with(row, False, erase=True)
+                else:
+                    button._app.begin_installation.assert_not_called()
+
+    def test_selects_published_releases_and_peels_gnome_tag(self):
+        refs = load_build_module("upstreams", "resolve-upstreams.py")
+        gnome = {"refs/tags/51.9": "a" * 40, "refs/tags/51.10": "b" * 40,
+                 "refs/tags/51.10^{}": "c" * 40, "refs/tags/52.rc": "d" * 40}
+        latte = {"refs/tags/v1.2.0": "e" * 40}
+        with patch.object(refs, "tag_refs", side_effect=[gnome, latte]), \
+                patch.object(refs, "read_latte_release", return_value="v1.2.0") as release:
+            mode, desktop, kernel = refs.select(None, None)
+        release.assert_called_once_with("latest")
+        self.assertEqual((mode, desktop["tag"], desktop["commit"], kernel["commit"]),
+                         ("stable-releases", "51.10", "c" * 40, "e" * 40))
+
+    def test_prereleases_and_unreleased_replay_are_rejected(self):
+        refs = load_build_module("upstreams", "resolve-upstreams.py")
+        for draft, prerelease in ((True, False), (False, True)):
+            with self.assertRaises(ValueError):
+                refs.latte_release({"tag_name": "v1.2.0", "draft": draft, "prerelease": prerelease})
+        with patch.object(refs, "tag_refs", return_value={"refs/tags/52.rc": "a" * 40}), \
+                self.assertRaisesRegex(ValueError, "No matching stable GNOME"):
+            refs.select("a" * 40, "b" * 40)
+        with patch.object(refs, "tag_refs", side_effect=[
+                {"refs/tags/51.1": "a" * 40}, {"refs/tags/v1.2.0-alpha": "b" * 40}]), \
+                self.assertRaisesRegex(ValueError, "matching Linux Latte"):
+            refs.select("a" * 40, "b" * 40)
+
+    def test_stable_replay_checks_the_exact_latte_release(self):
+        refs = load_build_module("upstreams", "resolve-upstreams.py")
+        with patch.object(refs, "tag_refs", side_effect=[
+                {"refs/tags/51.1": "a" * 40}, {"refs/tags/v1.2.0": "b" * 40}]), \
+                patch.object(refs, "read_latte_release", return_value="v1.2.0") as release:
+            mode, desktop, kernel = refs.select("a" * 40, "b" * 40)
+        release.assert_called_once_with("tags/v1.2.0")
+        self.assertEqual((mode, desktop["commit"], kernel["commit"]), ("replay", "a" * 40, "b" * 40))
+
+    def test_kernel_recipe_uses_only_the_resolved_commit(self):
+        template = (Path(__file__).resolve().parents[1] /
+                    "elements/gnomeos/latte-kernel.bst").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            element = Path(directory) / "kernel.bst"
+            for commit in ("a" * 40, "b" * 40):
+                element.write_text(template, encoding="utf-8")
+                prepare.pin_kernel_commit(element, commit)
+                self.assertEqual(element.read_text(), template.replace("LATTE_KERNEL_COMMIT", commit))
+            with self.assertRaises(SystemExit):
+                prepare.pin_kernel_commit(element, "c" * 40)
+            with self.assertRaises(SystemExit):
+                prepare.pin_kernel_commit(element, "main")
+
+    def test_missing_removal_anchor_fails_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            element = Path(directory) / "deps.bst"
+            element.write_text("- upstream/rewritten.bst\n", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "expected one removable block"):
+                prepare.remove_once(element, "- upstream/old.bst\n")
+
     def test_thermald_pin_preserves_commit_without_requiring_tag(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

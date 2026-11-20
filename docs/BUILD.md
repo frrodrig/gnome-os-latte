@@ -14,16 +14,44 @@ bash build/build-usb.sh
 
 The script:
 
-1. Clones GNOME Build Meta into `.build/`, pins GNOME OS Preview 51, and verifies its commit.
+1. Selects the highest numeric GNOME Build Meta final release tag and the latest non-draft, non-prerelease `xiaomi-latte-dev/linux_latte` GitHub release. It resolves both tags to exact commits, checks out GNOME in a fresh temporary directory under `.build/`, and gives BuildStream the resolved Latte kernel SHA.
 2. Modifies the temporary checkout to replace the generic kernel with the Latte kernel, add the tablet-specific configuration, and omit incompatible image updates.
 3. Generates the public `snakeoil` test keys required by GNOME OS in that checkout. These are not secure for personal use and must not be enrolled in firmware.
 4. Runs BuildStream for `x86_64`, the `stable` channel, and at most two concurrent tasks by default (`BST_MAX_JOBS` can change this limit).
-5. Checks out the official `gnomeos/live-image.bst` element into `.build/out/`.
+5. Checks out the official `gnomeos/live-image.bst` element and copies `upstream-revisions.json` into `.build/out/`. Actions includes the metadata in `SHA256SUMS` and in the boot evidence even if the build fails after resolution.
 
-The kernel revision is pinned as well. Transitive dependencies and the Freedesktop SDK junction use the revisions defined by the pinned GNOME Build Meta commit. BuildStream stores source and artifact data in its configured cache, usually outside `.build/`.
+The BuildStream channel option remains `stable`. Neither upstream branch tip
+is used as a fallback if release resolution fails. Transitive dependencies and the
+Freedesktop SDK junction use the refs from the selected GNOME commit; the
+script does not run `bst source track`. A new checkout prevents reuse of
+obsolete patched files; BuildStream still reuses source and artifact caches
+by their keys. Incompatible overlay or kernel configuration changes fail the
+build rather than falling back to an older commit.
 
-The preparation step pins `thermald` by its existing commit SHA rather than
-the unavailable `v2.15.10` Git tag. Its source revision is unchanged.
+To select the same source revisions, check out the recorded integration
+commit and pass both full upstream SHAs from `upstream-revisions.json`:
+
+```sh
+GNOME_BUILD_META_COMMIT=<gnome-sha> LATTE_KERNEL_COMMIT=<kernel-sha> \
+  bash build/build-usb.sh
+```
+
+In Actions, use the `gnome_build_meta_commit` and `latte_kernel_commit`
+dispatch inputs together. Omit both for the latest published stable releases.
+Replay requires both commits to still identify published stable releases. This
+replays source selections, not necessarily a byte-identical image; the original
+inputs must remain fetchable, and local uncommitted changes are not recorded.
+Use `bash build/build-usb.sh --prepare-only`
+to check that the GNOME checkout and overlays can be prepared without
+running BuildStream or generating an ISO.
+
+When the selected GNOME revision still uses the missing `thermald`
+`v2.15.10` tag, preparation retains its exact commit SHA without the tag.
+GNOME 51.1 lacks an erase dialog. The Latte overlay adds an explicit
+confirmation for eligible disks with a partition table, then calls the
+existing asynchronous installer daemon transaction instead of formatting
+through UDisks. Read-only, non-partitionable and undersized disks remain
+ineligible.
 
 The hardware defconfig is merged with `files/kernel/latte-boot.config`. The build
 checks the **resolved** `.config` after `olddefconfig`, not just the requested

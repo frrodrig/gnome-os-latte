@@ -14,6 +14,12 @@ on:
       - docs/BUILD.md
   workflow_dispatch:
     inputs:
+      gnome_build_meta_commit:
+        description: "Replay: full GNOME Build Meta SHA (requires Latte kernel SHA)"
+        type: string
+      latte_kernel_commit:
+        description: "Replay: full Latte kernel SHA (requires GNOME Build Meta SHA)"
+        type: string
       staging_version:
         description: "Optional isolated staging version (latte.N); no production channel"
         type: string
@@ -42,6 +48,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Test early boot validation gates
         run: |
@@ -121,6 +129,8 @@ jobs:
         id: build
         shell: bash
         env:
+          GNOME_BUILD_META_COMMIT: ${{ inputs.gnome_build_meta_commit || '' }}
+          LATTE_KERNEL_COMMIT: ${{ inputs.latte_kernel_commit || '' }}
           LATTE_STAGING_VERSION: ${{ inputs.staging_version || '' }}
           STAGING_UPDATES: ${{ inputs.staging_updates || false }}
         run: |
@@ -141,7 +151,7 @@ jobs:
             exit "$result"
           fi
           test -s .build/out/disk.iso
-          (cd .build/out && sha256sum disk.iso) | tee .build/out/SHA256SUMS
+          (cd .build/out && sha256sum disk.iso upstream-revisions.json) | tee .build/out/SHA256SUMS
           du -h .build/out/disk.iso
           df -h /
 
@@ -175,6 +185,7 @@ jobs:
           path: |
             .build/out/disk.iso
             .build/out/SHA256SUMS
+            .build/out/upstream-revisions.json
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -186,6 +197,7 @@ jobs:
           name: gnomeos-latte-boot-evidence-${{ github.run_id }}
           path: |
             .build/boot-smoke/partition-table.json
+            .build/upstream-revisions.json
             .build/boot-smoke/kernel.config
             .build/boot-smoke/qemu-boot.log
             .build/boot-smoke/boot-smoke.json

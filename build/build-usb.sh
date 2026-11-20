@@ -2,14 +2,15 @@
 set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC1091
-source "$repo_root/build/versions.env"
 
 with_updates=false
+prepare_only=false
 if [[ "${1:-}" == "--with-staging-updates" && $# == 1 ]]; then
     with_updates=true
+elif [[ "${1:-}" == "--prepare-only" && $# == 1 ]]; then
+    prepare_only=true
 elif (( $# != 0 )); then
-    printf 'Usage: LATTE_STAGING_VERSION=latte.N bash build/build-usb.sh [--with-staging-updates]\n' >&2
+    printf 'Usage: bash build/build-usb.sh [--with-staging-updates | --prepare-only]\n' >&2
     exit 1
 fi
 if [[ -n "${LATTE_STAGING_VERSION:-}" ]] &&
@@ -23,72 +24,51 @@ if $with_updates && [[ -z "${LATTE_STAGING_VERSION:-}" ]]; then
 fi
 
 build_root="$repo_root/.build"
-upstream="$build_root/gnome-build-meta"
 output="$build_root/out"
-prepared_marker="$build_root/gnomeos-latte-prepared.commit"
-integration_fingerprint="$(
-    sha256sum \
-        "$repo_root/build/build-usb.sh" \
-        "$repo_root/build/prepare-upstream.py" \
-        "$repo_root/build/check-boot-config.py" \
-        "$repo_root/files/kernel/latte-boot.config" \
-        "$repo_root/elements/gnomeos/latte-kernel.bst" \
-        "$repo_root/elements/gnomeos/latte-signed-modules.bst" \
-        "$repo_root/elements/gnomeos/latte-hardware.bst" \
-        "$repo_root/elements/gnomeos/latte-update-images.bst" \
-        "$repo_root/files/latte/90-latte.hwdb" \
-        "$repo_root/files/latte/latte.conf" \
-        "$repo_root/files/latte/live-no-boot-writes.conf" \
-        "$repo_root/files/latte/installer_transaction.py" \
-        "$repo_root/files/latte/00-latte-disable-sysupdate.preset" |
-        sha256sum | cut -d' ' -f1
-)"
-expected_marker="$GNOME_BUILD_META_COMMIT:$integration_fingerprint:${LATTE_STAGING_VERSION:-l.1}"
-
-for tool in git python3 make sha256sum; do
+for tool in git python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'Required tool is missing: %s\n' "$tool" >&2
         exit 1
     fi
 done
 
-if [[ -n "${BST_BIN:-}" ]]; then
-    bst_bin="$BST_BIN"
-else
-    bst_bin="$(command -v bst || true)"
-fi
-if [[ -z "$bst_bin" || ! -x "$bst_bin" ]]; then
-    printf 'Required BuildStream executable is missing: %s\n' "${BST_BIN:-bst}" >&2
-    exit 1
-fi
-"$bst_bin" --version
-
-if [[ ! -d "$upstream/.git" ]]; then
-    mkdir -p "$build_root"
-    git clone --filter=blob:none "$GNOME_BUILD_META_URL" "$upstream"
-fi
-
-if [[ -f "$prepared_marker" ]]; then
-    if [[ "$(cat "$prepared_marker")" != "$expected_marker" ]]; then
-        printf 'The existing checkout integration is stale; remove .build/gnome-build-meta and rebuild.\n' >&2
+if ! $prepare_only; then
+    bst_bin="$(command -v "${BST_BIN:-bst}" || true)"
+    if [[ -z "$bst_bin" || ! -x "$bst_bin" ]] || ! command -v make >/dev/null; then
+        printf 'BuildStream (%s) and make are required to build the image.\n' "${BST_BIN:-bst}" >&2
         exit 1
     fi
-else
-    if [[ -n "$(git -C "$upstream" status --porcelain)" ]]; then
-        printf 'The existing GNOME Build Meta checkout has changes; it will not be modified.\n' >&2
+    "$bst_bin" --version
+    if [[ -e "$output/disk.iso" || -e "$output/upstream-revisions.json" ]]; then
+        printf 'Existing output in %s; preserve it elsewhere before rebuilding.\n' "$output" >&2
         exit 1
     fi
-    git -C "$upstream" fetch --filter=blob:none origin "$GNOME_BUILD_META_COMMIT"
-    git -C "$upstream" checkout --detach "$GNOME_BUILD_META_COMMIT"
+    if $with_updates && [[ -e "$build_root/staging-updates" ]]; then
+        printf '%s already exists; preserve it elsewhere before rebuilding.\n' "$build_root/staging-updates" >&2
+        exit 1
+    fi
 fi
 
+integration_commit="$(git -C "$repo_root" rev-parse --verify HEAD)"
+mkdir -p "$build_root"
+upstream="$(mktemp -d "$build_root/gnome-build-meta.XXXXXXXX")"
+trap 'rm -rf -- "$upstream"' EXIT
+
+revisions="$(python3 "$repo_root/build/resolve-upstreams.py" "$upstream/provenance.json" "$integration_commit")"
+read -r gnome_url gnome_commit kernel_commit <<< "$revisions"
+install -Dm644 "$upstream/provenance.json" "$build_root/upstream-revisions.json"
+
+git -C "$upstream" init --quiet
+git -C "$upstream" remote add origin "$gnome_url"
+git -C "$upstream" fetch --no-tags --depth=1 origin "$gnome_commit"
+git -C "$upstream" checkout --detach FETCH_HEAD
 actual_commit="$(git -C "$upstream" rev-parse HEAD)"
-if [[ "$actual_commit" != "$GNOME_BUILD_META_COMMIT" ]]; then
+if [[ "$actual_commit" != "$gnome_commit" ]]; then
     printf 'GNOME Build Meta revision mismatch: %s\n' "$actual_commit" >&2
     exit 1
 fi
 
-if [[ ! -f "$prepared_marker" ]]; then
+(
     prepare_args=("$upstream")
     if [[ -n "${LATTE_STAGING_VERSION:-}" ]]; then
         prepare_args+=("$LATTE_STAGING_VERSION")
@@ -99,6 +79,8 @@ if [[ ! -f "$prepared_marker" ]]; then
 
     install -Dm644 "$repo_root/elements/gnomeos/latte-kernel.bst" \
         "$upstream/elements/gnomeos/latte-kernel.bst"
+    python3 "$repo_root/build/prepare-upstream.py" --kernel-ref \
+        "$upstream/elements/gnomeos/latte-kernel.bst" "$kernel_commit"
     install -Dm644 "$repo_root/elements/gnomeos/latte-signed-modules.bst" \
         "$upstream/elements/gnomeos/latte-signed-modules.bst"
     install -Dm644 "$repo_root/elements/gnomeos/latte-hardware.bst" \
@@ -121,6 +103,7 @@ if [[ ! -f "$prepared_marker" ]]; then
     git -C "$upstream" add -- \
         elements/gnomeos/signed-boot.bst \
         elements/gnomeos/initramfs/deps.bst \
+        elements/gnomeos/initramfs/filesystem.bst \
         elements/gnomeos/usr/deps.bst \
         elements/gnomeos/usr/layer.bst \
         elements/gnomeos/latte-kernel.bst \
@@ -128,7 +111,9 @@ if [[ ! -f "$prepared_marker" ]]; then
         elements/gnomeos/latte-hardware.bst \
         elements/gnomeos/latte-update-images.bst \
         elements/gnomeos-deps/deps.bst \
+        elements/gnomeos-deps/thermald.bst \
         files/gnomeos/latte-boot.config \
+        files/gnomeos/live/proto-installer/daemon/main.rs \
         files/gnomeos/live/proto-installer/installer.py \
         files/gnomeos/live/proto-installer/meson.build \
         files/gnomeos/live/proto-installer/installer_transaction.py \
@@ -138,30 +123,21 @@ if [[ ! -f "$prepared_marker" ]]; then
         files/gnomeos/latte/latte.conf \
         files/gnomeos/latte/live-no-boot-writes.conf \
         files/gnomeos/latte/00-latte-disable-sysupdate.preset
+)
+
+if $prepare_only; then
+    printf 'Upstream checkout and overlays prepared; no build requested.\n'
+    exit 0
 fi
 
-if [[ ! -s "$upstream/files/boot-keys/MODULES.key" ||
-      ! -s "$upstream/files/boot-keys/modules/linux-module-cert.crt" ]]; then
-    make -C "$upstream/files/boot-keys" IMPORT_MODE=snakeoil
-fi
-
-if [[ ! -f "$prepared_marker" ]]; then
-    printf '%s\n' "$expected_marker" > "$prepared_marker"
-fi
+make -C "$upstream/files/boot-keys" IMPORT_MODE=snakeoil
 
 mkdir -p "$output"
-if [[ -e "$output/disk.iso" ]]; then
-    printf '%s already exists; move or remove it before rebuilding.\n' "$output/disk.iso" >&2
-    exit 1
-fi
-if $with_updates && [[ -e "$build_root/staging-updates" ]]; then
-    printf '%s already exists; preserve it elsewhere before rebuilding.\n' "$build_root/staging-updates" >&2
-    exit 1
-fi
 bst_options=(
     --builders 2
     --max-jobs "${BST_MAX_JOBS:-2}"
     --option arch x86_64
+    --option x86_64_v3 false
     --option channel stable
     --option recc passthrough
 )
@@ -181,4 +157,5 @@ if [[ ! -s "$output/disk.iso" ]]; then
     printf 'The build completed without producing disk.iso.\n' >&2
     exit 1
 fi
+install -Dm644 "$upstream/provenance.json" "$output/upstream-revisions.json"
 printf 'Image ready: %s\n' "$output/disk.iso"

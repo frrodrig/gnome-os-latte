@@ -3,8 +3,8 @@ kind: manual
 sources:
 - kind: git_repo
   url: github:xiaomi-latte-dev/linux_latte.git
-  track: main
-  ref: 575dbb62ac89c5e3e49f98c386255178e29c9ec5
+  ref-format: sha1
+  ref: LATTE_KERNEL_COMMIT
 - kind: local
   path: files/boot-keys/modules/linux-module-cert.crt
 - kind: local

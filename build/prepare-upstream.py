@@ -14,7 +14,7 @@ def replace_once(path: Path, old: str, new: str) -> None:
     if old_count == 1:
         path.write_text(text.replace(old, new), encoding="utf-8")
         return
-    raise SystemExit(f"{path}: expected one integration point, found {old_count}")
+    raise SystemExit(f"{path}: expected one integration point for {old.splitlines()[0].strip()!r}, found {old_count}")
 
 
 def remove_once(path: Path, snippet: str) -> None:
@@ -22,8 +22,79 @@ def remove_once(path: Path, snippet: str) -> None:
     count = text.count(snippet)
     if count == 1:
         path.write_text(text.replace(snippet, ""), encoding="utf-8")
-    elif count != 0:
-        raise SystemExit(f"{path}: expected at most one removable block, found {count}")
+    else:
+        raise SystemExit(f"{path}: expected one removable block, found {count}")
+
+
+STABLE_PARTITION_ERROR = (
+    "            if path in partition_table_type:\n"
+    r'''                invalid = ('error', _("<b>Disk has a partition table.</b>\nTo use this disk, you first need to format it without partition table in GNOME Disks."))'''
+    "\n            elif block.Get('org.freedesktop.UDisks2.Block', 'ReadOnly', dbus_interface=dbus.PROPERTIES_IFACE):\n"
+)
+
+
+def patch_stable_installer(installer: Path) -> None:
+    replace_once(
+        installer,
+        STABLE_PARTITION_ERROR,
+        "            if block.Get('org.freedesktop.UDisks2.Block', 'ReadOnly', dbus_interface=dbus.PROPERTIES_IFACE):\n",
+    )
+    replace_once(
+        installer,
+        "            elif size != 0 and size < 30*1024*1024*1024:\n",
+        "            elif path in partition_table_type:\n"
+        '''                invalid = ('warning', _("<b>Disk already has a partition table.</b>"))\n'''
+        "            elif size != 0 and size < 30*1024*1024*1024:\n",
+    )
+    replace_once(
+        installer,
+        "            ret.append((os.path.relpath(device, '/dev'), model, size, media, invalid))\n",
+        "            ret.append((os.path.relpath(device, '/dev'), model, size, media, invalid, path in partition_table_type))\n",
+    )
+    replace_once(
+        installer,
+        "    def __init__(self, name, description, size, media, invalid):\n"
+        "        super().__init__()\n",
+        "    def __init__(self, name, description, size, media, invalid, needs_erase):\n"
+        "        super().__init__()\n"
+        "        self.needs_erase = needs_erase\n",
+    )
+    replace_once(
+        installer,
+        "        for name, description, size, media, invalid in self.udisks.get_disks():\n"
+        "            disk_selector.DiskList.append(DiskRow(name, description, size, media, invalid))\n",
+        "        for disk in self.udisks.get_disks():\n"
+        "            disk_selector.DiskList.append(DiskRow(*disk))\n",
+    )
+    replace_once(
+        installer,
+        "        selected_row = self._selector.DiskList.get_selected_row()\n"
+        "        recovery_key = self._installer.install(selected_row.get_device_name(), self._oem_mode)\n"
+        "        self._app.display_recovery(recovery_key)\n",
+        "        disk_list = self._selector.DiskList\n"
+        "        selected_row = disk_list.get_selected_row()\n"
+        "        if selected_row is None or not selected_row.get_selectable():\n"
+        "            return\n"
+        "        if not selected_row.needs_erase:\n"
+        "            self._app.begin_installation(selected_row, self._oem_mode, erase=False)\n"
+        "            return\n"
+        "        dialog = Adw.AlertDialog(\n"
+        '''            heading=_("Erase all disk data?"),\n'''
+        '''            body=_("All data on /dev/{device} will be lost.").format(device=selected_row.get_device_name()),\n'''
+        "        )\n"
+        '''        dialog.add_response("cancel", _("Cancel"))\n'''
+        '''        dialog.add_response("erase", _("Erase all disk data"))\n'''
+        '''        dialog.set_response_appearance("erase", Adw.ResponseAppearance.DESTRUCTIVE)\n'''
+        '''        dialog.set_default_response("cancel")\n'''
+        '''        dialog.set_close_response("cancel")\n'''
+        "        self.set_sensitive(False)\n\n"
+        "        def confirmed(source, result):\n"
+        "            self.set_sensitive(True)\n"
+        '''            if (source.choose_finish(result) == "erase" and disk_list.get_selected_row() is selected_row\n'''
+        "                    and selected_row.get_selectable()):\n"
+        "                self._app.begin_installation(selected_row, self._oem_mode, erase=True)\n\n"
+        "        dialog.choose(self._app.win, None, confirmed)\n",
+    )
 
 
 def patch_installer(root: Path) -> None:
@@ -47,19 +118,22 @@ def patch_installer(root: Path) -> None:
         "                                  error_handler=error_handler, timeout=600)\n\n"
         "    def install(self, device, oem_install, on_ready, on_error):\n",
     )
-    replace_once(
-        installer,
-        '            self._selected_row.get_block().Format("empty", {}, signature=\'sa{sv}\', dbus_interface=\'org.freedesktop.UDisks2.Block\')\n'
-        "            recovery_key = self._installer.install(self._selected_row.get_device_name(), self._oem_mode)\n"
-        "            self._app.display_recovery(recovery_key)\n",
-        "            self._app.begin_installation(self._selected_row, self._oem_mode, erase=True)\n",
-    )
-    replace_once(
-        installer,
-        "            recovery_key = self._installer.install(selected_row.get_device_name(), self._oem_mode)\n"
-        "            self._app.display_recovery(recovery_key)\n",
-        "            self._app.begin_installation(selected_row, self._oem_mode, erase=False)\n",
-    )
+    if "class EraseDiskAlertDialog(" in installer.read_text(encoding="utf-8"):
+        replace_once(
+            installer,
+            '            self._selected_row.get_block().Format("empty", {}, signature=\'sa{sv}\', dbus_interface=\'org.freedesktop.UDisks2.Block\')\n'
+            "            recovery_key = self._installer.install(self._selected_row.get_device_name(), self._oem_mode)\n"
+            "            self._app.display_recovery(recovery_key)\n",
+            "            self._app.begin_installation(self._selected_row, self._oem_mode, erase=True)\n",
+        )
+        replace_once(
+            installer,
+            "            recovery_key = self._installer.install(selected_row.get_device_name(), self._oem_mode)\n"
+            "            self._app.display_recovery(recovery_key)\n",
+            "            self._app.begin_installation(selected_row, self._oem_mode, erase=False)\n",
+        )
+    else:
+        patch_stable_installer(installer)
     replace_once(
         installer,
         "    def _on_error(self, message):\n",
@@ -84,6 +158,7 @@ def patch_installer(root: Path) -> None:
         directory / "meson.build", "  'installer.py',\n",
         "  'installer.py',\n  'installer_transaction.py',\n",
     )
+    compile(installer.read_text(encoding="utf-8"), str(installer), "exec")
 
 
 DAEMON_HELPERS = """
@@ -172,14 +247,22 @@ def set_staging_version(root: Path, version: str) -> None:
 def pin_thermald_commit(root: Path) -> None:
     # The upstream tag disappeared, but the pinned commit is still fetchable.
     commit = "88369b42ec523787081b9bf8811b364e2a3d5f2d"
-    replace_once(
-        root / "elements/gnomeos-deps/thermald.bst",
-        f"  ref: v2.15.10-0-g{commit}\n",
-        f"  ref-format: sha1\n  ref: {commit}\n",
-    )
+    path = root / "elements/gnomeos-deps/thermald.bst"
+    old = f"  ref: v2.15.10-0-g{commit}\n"
+    if path.is_file() and old in path.read_text(encoding="utf-8"):
+        replace_once(path, old, f"  ref-format: sha1\n  ref: {commit}\n")
+
+
+def pin_kernel_commit(element: Path, commit: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SystemExit("Expected a full Latte kernel commit SHA.")
+    replace_once(element, "  ref: LATTE_KERNEL_COMMIT\n", f"  ref: {commit}\n")
 
 
 def main() -> None:
+    if len(sys.argv) == 4 and sys.argv[1] == "--kernel-ref":
+        pin_kernel_commit(Path(sys.argv[2]), sys.argv[3])
+        return
     if len(sys.argv) not in (2, 3):
         raise SystemExit("usage: prepare-upstream.py GNOME-BUILD-META-CHECKOUT [STAGING-VERSION]")
     root = Path(sys.argv[1]).resolve()
