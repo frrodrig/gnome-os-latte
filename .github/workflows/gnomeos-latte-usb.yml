@@ -121,6 +121,7 @@ jobs:
         id: build
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           GNOME_BUILD_META_COMMIT: ${{ inputs.gnome_build_meta_commit || '' }}
           LATTE_KERNEL_COMMIT: ${{ inputs.latte_kernel_commit || '' }}
           LATTE_STAGING_VERSION: ${{ inputs.staging_version || '' }}

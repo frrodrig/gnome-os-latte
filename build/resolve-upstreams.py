@@ -7,7 +7,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from urllib.request import urlopen
+import time
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 
 GNOME_URL = "https://gitlab.gnome.org/GNOME/gnome-build-meta.git"
@@ -38,9 +40,19 @@ def tag_commit(refs, tag):
     return checked_sha(refs.get(f"{ref}^{{}}", refs[ref]))
 
 
+def fetch_json(url, headers=None):
+    for attempt in range(5):
+        try:
+            with urlopen(Request(url, headers=headers or {}), timeout=30) as response:
+                return json.load(response)
+        except HTTPError as error:
+            if error.code not in (403, 429, 500, 502, 503, 504) or attempt == 4:
+                raise ValueError(f"{url}: HTTP {error.code}") from error
+            time.sleep(min(int(error.headers.get("Retry-After") or 0), 120) or 15 * 2 ** attempt)
+
+
 def gitlab_json(path):
-    with urlopen(f"{GNOME_API}{path}", timeout=30) as response:
-        return json.load(response)
+    return fetch_json(f"{GNOME_API}{path}")
 
 
 def stable_gnome_branch(branches):
@@ -81,8 +93,9 @@ def latte_release(release):
 
 
 def read_latte_release(path):
-    with urlopen(f"{LATTE_RELEASES_URL}/{path}", timeout=30) as response:
-        return latte_release(json.load(response))
+    token = os.getenv("GITHUB_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return latte_release(fetch_json(f"{LATTE_RELEASES_URL}/{path}", headers))
 
 
 def select(gnome_override, latte_override):
