@@ -37,8 +37,12 @@ GNOME_BUILD_META_COMMIT=<gnome-sha> LATTE_KERNEL_COMMIT=<kernel-sha> \
 ```
 
 In Actions, use the `gnome_build_meta_commit` and `latte_kernel_commit`
-dispatch inputs together. Omit both for the latest published stable releases.
-Replay requires both commits to still identify published stable releases. This
+dispatch inputs together. Omit both for the latest cached stable build: GNOME
+Build Meta resolves to the head of the newest `gnome-N` branch's latest
+successful scheduled GNOME CI pipeline (whose artifacts are in GNOME's remote
+cache, avoiding a from-scratch build that exceeds the 6 h Actions limit), and
+Linux Latte to its latest published release. Replay requires the Latte commit to
+still identify a published release; the GNOME commit may be any SHA. This
 replays source selections, not necessarily a byte-identical image; the original
 inputs must remain fetchable, and local uncommitted changes are not recorded.
 Use `bash build/build-usb.sh --prepare-only`

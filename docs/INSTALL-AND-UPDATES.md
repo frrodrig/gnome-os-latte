@@ -29,51 +29,14 @@ This replacement path is not validated on the tablet.
 The daemon's actual partitioning transaction remains upstream.
 The kernel also requires dm-crypt for the installer's TPM-encrypted-root path.
 
-## Disposable UEFI VM test
+## Delivery
 
-On Linux, with QEMU and OVMF available:
-
-```sh
-python3 build/test-install-vm.py .build/out/disk.iso \
-  --output .build/install-test \
-  --ovmf-code /usr/share/OVMF/OVMF_CODE_4M.fd \
-  --ovmf-vars /usr/share/OVMF/OVMF_VARS_4M.fd
-```
-
-The output directory must not exist. The runner creates a new 16 GiB regular
-file, exposes only that virtual disk and a read-only ISO, uses a private copy
-of UEFI variables, and disconnects networking. It never accepts a destination
-block-device argument. A private ISO copy is instrumented with an additional
-initrd in its live EFI addon to inject the test service; the kernel and protected
-`/usr` are unchanged. No automation is added to the original downloadable ISO.
-The guest identifies
-the unique virtual target by USB sysfs serial and size before calling the
-installer. This does not depend on `lsblk` having a populated serial property.
-
-The first boot invokes the **installer daemon**, not the graphical erase
-dialog. The new virtual disk starts with a GPT and a 2 GiB Linux partition;
-the guest requires a partition before `EraseDisk` and no partitions afterwards,
-then calls `Install`. A second boot without the ISO
-checks UEFI, persistent root data, and a complete active dm-verity read. Success
-requires both markers and writes `result.json`; failures preserve logs and the
-virtual disk. This test disables TPM encryption explicitly and does not test
-Secure Boot, the tablet, GUI responsiveness, OTA, or recovery. A successful
-kernel/initrd-only smoke test is not a substitute for this test.
-Both VM boots select the multi-user target rather than starting the desktop.
-
-Actions keeps this full regression **optional** (`test_installation`, default
-false) because it creates a 16 GiB test disk and runs two emulated UEFI boots.
-Enable it when changing the daemon, erase path, layout or boot integration.
-Skipping it loses coverage of `EraseDisk`, partitioning, installation, persistent
-root and installed UEFI boot; it is not evidence that installation works.
-The independent kernel/initrd/complete-verity smoke remains mandatory on every
-image build. When requested, installation failure still fails the workflow and
-blocks the ISO upload; it is not ignored to obtain a successful build.
-
-The only binary delivery is the live `disk.iso` and `SHA256SUMS`, including
-successful non-staging runs that opt into installation testing. The disposable
-disk and instrumented ISO copy are test inputs, never compressed or uploaded.
-There is no preinstalled-disk export option or physical-disk flashing helper.
+The only binary delivery is the live `disk.iso` and `SHA256SUMS`
+(plus `upstream-revisions.json`), uploaded with one-day retention after the
+independent kernel/initrd/complete-verity smoke passes. The workflow has no
+installation VM test and no preinstalled-disk export or physical-disk flashing
+helper. The sections below record earlier validation runs that used the since
+removed disposable-VM test (`test_installation`).
 
 ### EraseDisk regression in run 43949330889
 

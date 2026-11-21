@@ -20,10 +20,7 @@ this installed-system setup because its root is ephemeral. Requiring
 existing installed policy in a future image; it does not change an already
 installed tablet.
 
-The optional `test_installation` Actions run checks this on an installed
-UEFI VM boot without the ISO: zswap must be enabled and the backing device
-labeled `default-swap` must appear with nonzero capacity in `/proc/swaps`.
-It does not benchmark the tablet or emulate its eMMC.
+This policy is not exercised by the Actions workflow, which only builds and smoke-tests the live ISO. It does not benchmark the tablet or emulate its eMMC.
 
 The upstream 4x backing size is a starting point, not a device measurement.
 The swap file grows as pages are written; eMMC capacity, free space, latency,

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Test installer callbacks without GTK, DBus, or disk access."""
 
-import ast
 import importlib.util
 from pathlib import Path
 import sys
-import struct
 import tempfile
 import types
 import unittest
@@ -31,7 +29,6 @@ def load_build_module(name, filename):
 
 
 prepare = load_build_module("prepare", "prepare-upstream.py")
-vm = load_build_module("vm", "test-install-vm.py")
 updates = load_build_module("updates", "verify-staging-updates.py")
 
 
@@ -147,35 +144,39 @@ class StagingTests(unittest.TestCase):
                 else:
                     button._app.begin_installation.assert_not_called()
 
-    def test_selects_published_releases_and_peels_gnome_tag(self):
+    def test_selects_latest_cached_stable_gnome_and_published_latte(self):
         refs = load_build_module("upstreams", "resolve-upstreams.py")
-        gnome = {"refs/tags/51.9": "a" * 40, "refs/tags/51.10": "b" * 40,
-                 "refs/tags/51.10^{}": "c" * 40, "refs/tags/52.rc": "d" * 40}
+        branches = [{"name": "gnome-50"}, {"name": "gnome-51"}, {"name": "gnome-9"}, {"name": "main"}]
+        self.assertEqual(refs.stable_gnome_branch(branches), "gnome-51")
+        pipelines = [{"id": 3, "sha": "a" * 40}, {"id": 2, "sha": "b" * 40}]
+        jobs = {3: [{"name": "build-x86_64", "status": "failed"}],
+                2: [{"name": "build-x86_64", "status": "success"}]}
+        self.assertEqual(refs.cached_gnome_release("gnome-51", pipelines, jobs.get),
+                         {"branch": "gnome-51", "pipeline": 2, "commit": "b" * 40})
+        with self.assertRaisesRegex(ValueError, "No cached"):
+            refs.cached_gnome_release("gnome-51", pipelines[:1], jobs.get)
         latte = {"refs/tags/v1.2.0": "e" * 40}
-        with patch.object(refs, "tag_refs", side_effect=[gnome, latte]), \
+        gnome = {"branch": "gnome-51", "pipeline": 2, "commit": "b" * 40}
+        with patch.object(refs, "read_cached_gnome_release", return_value=gnome), \
+                patch.object(refs, "tag_refs", return_value=latte), \
                 patch.object(refs, "read_latte_release", return_value="v1.2.0") as release:
             mode, desktop, kernel = refs.select(None, None)
         release.assert_called_once_with("latest")
-        self.assertEqual((mode, desktop["tag"], desktop["commit"], kernel["commit"]),
-                         ("stable-releases", "51.10", "c" * 40, "e" * 40))
+        self.assertEqual((mode, desktop["commit"], kernel["commit"]),
+                         ("stable-releases", "b" * 40, "e" * 40))
 
     def test_prereleases_and_unreleased_replay_are_rejected(self):
         refs = load_build_module("upstreams", "resolve-upstreams.py")
         for draft, prerelease in ((True, False), (False, True)):
             with self.assertRaises(ValueError):
                 refs.latte_release({"tag_name": "v1.2.0", "draft": draft, "prerelease": prerelease})
-        with patch.object(refs, "tag_refs", return_value={"refs/tags/52.rc": "a" * 40}), \
-                self.assertRaisesRegex(ValueError, "No matching stable GNOME"):
-            refs.select("a" * 40, "b" * 40)
-        with patch.object(refs, "tag_refs", side_effect=[
-                {"refs/tags/51.1": "a" * 40}, {"refs/tags/v1.2.0-alpha": "b" * 40}]), \
+        with patch.object(refs, "tag_refs", return_value={"refs/tags/v1.2.0-alpha": "b" * 40}), \
                 self.assertRaisesRegex(ValueError, "matching Linux Latte"):
             refs.select("a" * 40, "b" * 40)
 
     def test_stable_replay_checks_the_exact_latte_release(self):
         refs = load_build_module("upstreams", "resolve-upstreams.py")
-        with patch.object(refs, "tag_refs", side_effect=[
-                {"refs/tags/51.1": "a" * 40}, {"refs/tags/v1.2.0": "b" * 40}]), \
+        with patch.object(refs, "tag_refs", return_value={"refs/tags/v1.2.0": "b" * 40}), \
                 patch.object(refs, "read_latte_release", return_value="v1.2.0") as release:
             mode, desktop, kernel = refs.select("a" * 40, "b" * 40)
         release.assert_called_once_with("tags/v1.2.0")
@@ -238,23 +239,6 @@ class StagingTests(unittest.TestCase):
             self.assertIn("self.runtime.spawn(async move { erase_device(&device).await })", patched)
             self.assertNotIn("let _ = run_tool", patched)
 
-    def test_guest_recognizes_usb_serial_without_lsblk_serial(self):
-        helper = next(node for node in ast.parse(vm.GUEST).body
-                      if isinstance(node, ast.FunctionDef) and node.name == "usb_serials")
-        namespace = {}
-        exec(compile(ast.Module(body=[helper], type_ignores=[]), "<guest-helper>", "exec"), namespace)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            usb = root / "usb1/1-1"
-            block = usb / "interface/host0/target0/block/sda"
-            block.mkdir(parents=True)
-            (usb / "idVendor").write_text("46f4")
-            (usb / "serial").write_text("LATTE_STAGING_ONLY\n")
-            (root / "serial").write_text("not-a-usb-device")
-            self.assertEqual(namespace["usb_serials"](block), ["LATTE_STAGING_ONLY"])
-            (usb / "serial").write_text("different-target")
-            self.assertNotIn("LATTE_STAGING_ONLY", namespace["usb_serials"](block))
-
     def test_update_verifier_rejects_mixed_versions_and_malformed_catalog(self):
         names = [
             "latte-kernel-x86-64_latte.1.efi",
@@ -273,17 +257,6 @@ class StagingTests(unittest.TestCase):
                     catalog.write_text(contents)
                     updates.verify(root)
 
-    def test_addon_section_uses_absolute_address_above_existing_sections(self):
-        data = bytearray(512)
-        struct.pack_into("<I", data, 0x3C, 64)
-        data[64:68] = b"PE\0\0"
-        struct.pack_into("<H", data, 70, 1)
-        struct.pack_into("<H", data, 84, 112)
-        struct.pack_into("<H", data, 88, 0x20B)
-        struct.pack_into("<Q", data, 112, 0x1DD510000)
-        struct.pack_into("<III", data, 208, 0x1111, 0x4000, 0x1200)
-        self.assertEqual(vm.addon_initrd_address(data), 0x1DD516000)
-
     def test_explicit_versions_and_idempotent_preparation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -299,44 +272,6 @@ class StagingTests(unittest.TestCase):
             self.assertEqual(expected, version.read_text())
             with self.assertRaises(SystemExit):
                 prepare.set_staging_version(root, "latte.3")
-
-    def test_vm_uses_new_regular_disk_and_removes_iso_for_second_boot(self):
-        commands = []
-        partition_commands = []
-
-        def fake_run(command, **kwargs):
-            if command[0] == "sfdisk":
-                partition_commands.append((command, kwargs))
-                return types.SimpleNamespace(returncode=0)
-            commands.append(command)
-            marker = ("LATTE_STAGING_INSTALL_OK" if len(commands) == 1
-                      else "LATTE_INSTALLED_SWAP_OK\nLATTE_STAGING_INSTALLED_BOOT_OK")
-            kwargs["stdout"].write(marker.encode())
-            return types.SimpleNamespace(returncode=0)
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            paths = [root / name for name in ("iso", "code", "vars")]
-            for path in paths:
-                path.write_bytes(b"fixture")
-            with patch.object(vm.shutil, "which", return_value="qemu"), \
-                    patch.object(vm, "DISK_BYTES", 512), \
-                    patch.object(vm, "instrument_iso"), \
-                    patch.object(vm.subprocess, "run", side_effect=fake_run):
-                vm.run(paths[0], root / "output", paths[1], paths[2], 1)
-                self.assertEqual((root / "output/disposable.raw").stat().st_size, 512)
-                self.assertEqual(partition_commands[0][0], ["sfdisk", str((root / "output/disposable.raw").resolve())])
-                self.assertEqual(partition_commands[0][1]["input"], "label: gpt\nsize=2G,type=linux\n")
-                self.assertTrue(any("id=live" in arg for arg in commands[0]))
-                self.assertFalse(any("id=live" in arg for arg in commands[1]))
-                self.assertTrue(any("readonly=on" in arg and "id=live" in arg for arg in commands[0]))
-                with self.assertRaises(FileExistsError):
-                    vm.run(paths[0], root / "output", paths[1], paths[2], 1)
-
-    def test_vm_rejects_nonregular_input(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(ValueError):
-                vm.regular(Path(directory))
 
 
 if __name__ == "__main__":

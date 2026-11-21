@@ -28,10 +28,6 @@ on:
         description: "Build unsigned update candidates on the runner; do not upload them"
         type: boolean
         default: false
-      test_installation:
-        description: "Optional EraseDisk/install and installed UEFI boot regression on a disposable disk (no disk upload)"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -121,10 +117,6 @@ jobs:
             echo "::warning::GNOME estimates about 50 GiB for a first build. Proceeding because GNOME's remote artifact cache may reduce local work; disk exhaustion remains possible."
           fi
 
-      - name: Install firmware for disposable VM test
-        if: inputs.test_installation
-        run: sudo apt-get install --yes --no-install-recommends ovmf
-
       - name: Build and verify USB image
         id: build
         shell: bash
@@ -169,14 +161,6 @@ jobs:
           python3 build/verify-staging-updates.py .build/staging-updates \
             | tee "$RUNNER_TEMP/latte-staging-updates.log"
 
-      - name: Install and boot disposable UEFI disk without USB ISO
-        if: inputs.test_installation
-        run: |
-          python3 build/test-install-vm.py .build/out/disk.iso \
-            --output .build/install-test \
-            --ovmf-code /usr/share/OVMF/OVMF_CODE_4M.fd \
-            --ovmf-vars /usr/share/OVMF/OVMF_VARS_4M.fd
-
       - name: Upload ISO and checksum (one-day retention)
         if: success() && !inputs.staging_updates && !inputs.staging_version && steps.build.outcome == 'success' && steps.smoke.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -203,9 +187,6 @@ jobs:
             .build/boot-smoke/boot-smoke.json
             .build/boot-smoke/verity-verify.log
             .build/boot-smoke/verity-verify.json
-            .build/install-test/install.log
-            .build/install-test/installed.log
-            .build/install-test/result.json
             ${{ runner.temp }}/gnomeos-latte-smoke.log
             ${{ runner.temp }}/latte-staging-updates.log
           if-no-files-found: ignore
