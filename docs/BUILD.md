@@ -273,6 +273,53 @@ If the media does not boot or something goes wrong, power off the tablet, discon
 
 The kernel includes Latte hardware support, capacitive-button mappings, and loading of the RT5659 audio module. The Latte UCM profile for the RT5659/TFA989x card is included from `xiaomi-latte-dev/docs` commit `c0c672d128e4e0dac497b4af7b40fea64df6ec19`, with attribution to `@Qs315490` and MIT terms in `files/latte/ucm`. The user relayed that the author confirmed MIT still applies; the upstream `docs` repository itself has no license declaration. This provides routing only when the kernel registers an ALSA card and has not been validated on the tablet. Other community firmware and Wi-Fi calibration data remain excluded pending a separate redistribution audit. The image may boot while some device-specific features remain unavailable.
 
+### Experimental AtomISP camera port
+
+The reported installed system detects only the front camera. No AtomISP
+libcamera pipeline is included in this branch, and this section does not claim
+that either sensor works through libcamera. The last successful image build
+selected GNOME Build Meta `db69d872ba90a7bb96b53bbcc8a88ea8e9c6c9f0` and
+Linux Latte `cc25d54906f61d53f4712ffa44ae38f4b4145f72` (release `v1.2.0`).
+That GNOME revision selects Freedesktop SDK `114ae909ec9881958bd507c8b4414aa33f758d2b`,
+whose libcamera element uses `v0.7.2` commit
+`191e202178f02430b5942397c70d215cdd2056fa`. Future builds may select
+different stable revisions.
+
+Hans de Goede's [AtomISP pipeline series](https://github.com/jwrdegoede/libcamera/commits/atomisp/)
+targets an older libcamera revision. Its pipeline source is LGPL-2.1-or-later
+and its added configuration and Meson file are CC0-1.0; the original copyright
+notices must be preserved in a port. The
+[Mi Pad 2 adaptation](https://github.com/xiaomi-latte-dev/libcamera-atomisp-android/tree/15eb875f7331ef6d96036fc6c64d536d4839a9b4)
+mixes Android-specific changes with device fixes and has no repository-wide
+license declaration. The reported MIT confirmation for the separate audio UCM
+profile does not establish a license for those changes.
+
+Applying the first patch of that series to libcamera `v0.7.2` fails in
+`swstats_cpu.cpp`; the pipeline patch also fails in the software ISP Meson
+file. Current libcamera already has some of the series' statistics
+infrastructure, but lacks YUV420 statistics and the AtomISP handler.
+The [original YUV420 statistics change](https://github.com/jwrdegoede/libcamera/commit/7b22ee2a0b91284ac7840739b3ab464db5693c1a)
+indexes the half-width U and V rows with a full-width luminance coordinate.
+It can sample the wrong chroma row or read outside a plane and must not be
+copied unchanged. The port needs bounds-tested YUV420 handling, the current
+IPA and statistics APIs, and safe ownership of the capture node shared by
+both sensors. The original handler supports only one active sensor at a
+time.
+
+The device adaptation reports duplicate or unsupported capture formats.
+In libcamera `v0.7.2`, `V4L2VideoDevice::formats()` discards all formats
+when it encounters such a case; the exact kernel and sensor behaviour still
+needs confirmation on the tablet. The Latte kernel also writes a CSI port
+into the reserved `VIDIOC_ENUMINPUT` field, but the proposed handler does not
+use that ioctl, so a kernel change is not established as necessary.
+
+A future integration must override and rebuild the SDK's libcamera element,
+include both the AtomISP and simple IPA pipelines, and fail explicitly if
+the resolved upstream changes incompatibly. Building alone does not establish
+sensor enumeration or capture. Test `cam -l`, PipeWire/GStreamer and GNOME
+Snapshot with each sensor, including switching and simultaneous-use errors,
+on the tablet before claiming support; no such tests have been run here.
+
 The first physical USB boot reached the initramfs but failed to activate
 dm-verity because the original hardware defconfig omitted `CONFIG_DM_VERITY`;
 it also omitted `CONFIG_EROFS_FS`. The boot fragment and automated mount test
