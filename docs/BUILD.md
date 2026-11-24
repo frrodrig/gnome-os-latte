@@ -271,7 +271,7 @@ Do not change Secure Boot, enroll keys, or modify EFI variables as part of this 
 
 If the media does not boot or something goes wrong, power off the tablet, disconnect the USB drive, and boot normally. This procedure does not change the internal disk or bootloader and should not require recovery of the internal system.
 
-The kernel includes Latte hardware support, capacitive-button mappings, and loading of the RT5659 audio module. The community files `BCM4356A2.hcd`, `shisp_2401a0_v21.bin`, Wi-Fi calibration data, and ALSA UCM profiles are not copied because their redistribution licenses have not been verified. The image may boot while some device-specific features remain unavailable.
+The kernel includes Latte hardware support, capacitive-button mappings, and loading of the RT5659 audio module. The Latte UCM profile for the RT5659/TFA989x card is included from `xiaomi-latte-dev/docs` commit `c0c672d128e4e0dac497b4af7b40fea64df6ec19`, with attribution to `@Qs315490` and MIT terms in `files/latte/ucm`. The user relayed that the author confirmed MIT still applies; the upstream `docs` repository itself has no license declaration. This provides routing only when the kernel registers an ALSA card and has not been validated on the tablet. Other community firmware and Wi-Fi calibration data remain excluded pending a separate redistribution audit. The image may boot while some device-specific features remain unavailable.
 
 The first physical USB boot reached the initramfs but failed to activate
 dm-verity because the original hardware defconfig omitted `CONFIG_DM_VERITY`;

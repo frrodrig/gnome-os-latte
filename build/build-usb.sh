@@ -100,6 +100,7 @@ fi
         "$upstream/files/gnomeos/latte/live-no-boot-writes.conf"
     install -Dm644 "$repo_root/files/latte/00-latte-disable-sysupdate.preset" \
         "$upstream/files/gnomeos/latte/00-latte-disable-sysupdate.preset"
+    cp -a "$repo_root/files/latte/ucm" "$upstream/files/gnomeos/latte/"
     git -C "$upstream" add -- \
         elements/gnomeos/signed-boot.bst \
         elements/gnomeos/initramfs/deps.bst \
@@ -122,7 +123,8 @@ fi
         files/gnomeos/latte/90-latte.hwdb \
         files/gnomeos/latte/latte.conf \
         files/gnomeos/latte/live-no-boot-writes.conf \
-        files/gnomeos/latte/00-latte-disable-sysupdate.preset
+        files/gnomeos/latte/00-latte-disable-sysupdate.preset \
+        files/gnomeos/latte/ucm
 )
 
 if $prepare_only; then

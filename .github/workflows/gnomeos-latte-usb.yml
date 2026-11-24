@@ -47,10 +47,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test early boot validation gates
+      - name: Test Latte overlays and early boot validation gates
         run: |
           python3 build/test-boot-validation.py
           python3 build/test-installer-transaction.py
+          python3 build/test-ucm-overlay.py
 
       - name: Inspect and reclaim runner disk
         shell: bash
