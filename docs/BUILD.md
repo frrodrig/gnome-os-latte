@@ -276,8 +276,8 @@ The kernel includes Latte hardware support, capacitive-button mappings, and load
 ### Experimental AtomISP camera port
 
 The reported installed system detects only the front camera. No AtomISP
-libcamera pipeline is included in this branch, and this section does not claim
-that either sensor works through libcamera. The last successful image build
+libcamera pipeline is enabled in the image build, and this section does not
+claim that either sensor works through libcamera. The last successful image build
 selected GNOME Build Meta `db69d872ba90a7bb96b53bbcc8a88ea8e9c6c9f0` and
 Linux Latte `cc25d54906f61d53f4712ffa44ae38f4b4145f72` (release `v1.2.0`).
 That GNOME revision selects Freedesktop SDK `114ae909ec9881958bd507c8b4414aa33f758d2b`,
@@ -305,6 +305,20 @@ copied unchanged. The port needs bounds-tested YUV420 handling, the current
 IPA and statistics APIs, and safe ownership of the capture node shared by
 both sensors. The original handler supports only one active sensor at a
 time.
+
+`files/camera/libcamera-0.7.2-atomisp.wip.patch` is an **unapplied,
+incomplete** port for the exact libcamera commit above. It preserves the
+original source notices and is not connected to BuildStream or an image.
+It is not suitable for deployment: in particular, asynchronous IPA statistics
+must be serialized before reusing shared memory, request completion must wait
+for matching metadata, and buffer layouts and cancellation need validation.
+It must not be used merely because it applies or compiles.
+
+The separately testable `files/camera/atomisp-yuv.h` implements bounded YUV420
+sampling, including half-resolution chroma coordinates. Its focused test is
+`build/test-atomisp-yuv.cpp`; run it with a C++20 compiler and address and
+undefined-behaviour sanitizers. This test does not exercise libcamera, a
+camera driver, or actual capture.
 
 The device adaptation reports duplicate or unsupported capture formats.
 In libcamera `v0.7.2`, `V4L2VideoDevice::formats()` discards all formats
