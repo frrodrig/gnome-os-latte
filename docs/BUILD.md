@@ -319,11 +319,11 @@ merely because it applies or compiles.
 The separately testable `files/camera/atomisp-yuv.h` implements bounded YUV420
 sampling, including half-resolution chroma coordinates. Its focused test is
 `build/test-atomisp-yuv.cpp`; run it with a C++20 compiler and address and
-undefined-behaviour sanitizers. The test passed with both sanitizers. The
-experimental handler and IPA-module test source also compile as individual
-objects against libcamera 0.7.2; this alone does not establish a linked or
-working pipeline. The YUV test does not exercise libcamera, a camera driver,
-or actual capture.
+undefined-behaviour sanitizers. The test passed with both sanitizers. An
+isolated Linux build linked libcamera 0.7.2 with the experimental handler and
+the simple IPA module, and the IPA name/version matching test passed. These
+checks do not establish camera enumeration or capture. The YUV test does not
+exercise libcamera or a camera driver.
 
 The device adaptation reports duplicate or unsupported capture formats.
 In libcamera `v0.7.2`, `V4L2VideoDevice::formats()` discards all formats
