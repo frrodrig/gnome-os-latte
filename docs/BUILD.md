@@ -309,16 +309,21 @@ time.
 `files/camera/libcamera-0.7.2-atomisp.wip.patch` is an **unapplied,
 incomplete** port for the exact libcamera commit above. It preserves the
 original source notices and is not connected to BuildStream or an image.
-It is not suitable for deployment: in particular, asynchronous IPA statistics
-must be serialized before reusing shared memory, request completion must wait
-for matching metadata, and buffer layouts and cancellation need validation.
-It must not be used merely because it applies or compiles.
+It is not suitable for deployment: the proposed serialization of asynchronous
+IPA statistics and metadata completion, stop/restart and cancellation paths,
+sensor controls and buffer layouts all require further validation. In
+particular, frame-start event availability and delayed exposure/gain controls
+on the actual Latte kernel have not been established. It must not be used
+merely because it applies or compiles.
 
 The separately testable `files/camera/atomisp-yuv.h` implements bounded YUV420
 sampling, including half-resolution chroma coordinates. Its focused test is
 `build/test-atomisp-yuv.cpp`; run it with a C++20 compiler and address and
-undefined-behaviour sanitizers. This test does not exercise libcamera, a
-camera driver, or actual capture.
+undefined-behaviour sanitizers. The test passed with both sanitizers. The
+experimental handler and IPA-module test source also compile as individual
+objects against libcamera 0.7.2; this alone does not establish a linked or
+working pipeline. The YUV test does not exercise libcamera, a camera driver,
+or actual capture.
 
 The device adaptation reports duplicate or unsupported capture formats.
 In libcamera `v0.7.2`, `V4L2VideoDevice::formats()` discards all formats

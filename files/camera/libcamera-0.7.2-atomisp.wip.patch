@@ -259,10 +259,10 @@ index 0000000..d261c05
 +} /* namespace latte */
 diff --git a/src/libcamera/pipeline/atomisp/atomisp.cpp b/src/libcamera/pipeline/atomisp/atomisp.cpp
 new file mode 100644
-index 0000000..85ce629
+index 0000000..7d294f1
 --- /dev/null
 +++ b/src/libcamera/pipeline/atomisp/atomisp.cpp
-@@ -0,0 +1,667 @@
+@@ -0,0 +1,743 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/*
 + * atomisp.cpp - Pipeline handler for atomisp devices
@@ -292,6 +292,7 @@ index 0000000..85ce629
 + */
 +
 +#include <algorithm>
++#include <deque>
 +#include <map>
 +#include <memory>
 +#include <set>
@@ -345,6 +346,8 @@ index 0000000..85ce629
 +
 +	int init(MediaEntity *sensor);
 +	void imageBufferReady(FrameBuffer *buffer);
++	void processPendingStats();
++	void metadataReady(uint32_t frame, const ControlList &metadata);
 +	void setSensorControls(const ControlList &sensorControls);
 +
 +	/* This is owned by AtomispPipelineHandler and shared by the cameras */
@@ -356,6 +359,11 @@ index 0000000..85ce629
 +	SharedMemObject<DebayerParams> debayerParams_;
 +	Stream stream_;
 +	std::map<PixelFormat, std::vector<SizeRange>> formats_;
++	std::map<FrameBuffer *, uint32_t> frameIds_;
++	std::deque<FrameBuffer *> pendingStats_;
++	uint32_t nextFrame_ = 0;
++	bool statsInFlight_ = false;
++	bool stopping_ = true;
 +	MediaLink *csiReceiverIspLink_;
 +};
 +
@@ -534,8 +542,14 @@ index 0000000..85ce629
 +	StreamFormats formats(data->formats_);
 +	StreamConfiguration cfg(formats);
 +
-+	cfg.pixelFormat = formats.pixelformats().front();
-+	cfg.size = formats.sizes(cfg.pixelFormat).back();
++	const std::vector<PixelFormat> pixelFormats = formats.pixelformats();
++	if (pixelFormats.empty())
++		return nullptr;
++	cfg.pixelFormat = pixelFormats.front();
++	const std::vector<Size> sizes = formats.sizes(cfg.pixelFormat);
++	if (sizes.empty())
++		return nullptr;
++	cfg.size = sizes.back();
 +	cfg.bufferCount = 4;
 +
 +	config->addConfiguration(cfg);
@@ -578,8 +592,11 @@ index 0000000..85ce629
 +		return -EINVAL;
 +	}
 +
++	const uint64_t lumaSize = uint64_t(format.planes[0].bpl) * cfg.size.height;
 +	if (format.planesCount != 1 || format.planes[0].bpl < cfg.size.width ||
-+	    format.planes[0].bpl % 2 || cfg.size.width % 2 || cfg.size.height % 2) {
++	    format.planes[0].bpl % 2 || cfg.size.width % 2 || cfg.size.height % 2 ||
++	    lumaSize > format.planes[0].size ||
++	    format.planes[0].size - lumaSize < lumaSize / 2) {
 +		LOG(Atomisp, Error) << "Unsupported YUV420 buffer layout";
 +		return -EINVAL;
 +	}
@@ -636,6 +653,7 @@ index 0000000..85ce629
 +		return ret;
 +	}
 +
++	data->stopping_ = false;
 +	return 0;
 +}
 +
@@ -643,10 +661,19 @@ index 0000000..85ce629
 +{
 +	AtomispCameraData *data = cameraData(camera);
 +
++	data->stopping_ = true;
 +	data->video_->streamOff();
 +	video_->bufferReady.disconnect(data, &AtomispCameraData::imageBufferReady);
 +	data->video_->releaseBuffers();
 +	data->ipa_->stop();
++	while (!data->pendingStats_.empty()) {
++		FrameBuffer *buffer = data->pendingStats_.front();
++		data->pendingStats_.pop_front();
++		data->frameIds_.erase(buffer);
++		cancelRequest(buffer->request());
++	}
++	data->statsInFlight_ = false;
++	data->frameIds_.clear();
 +}
 +
 +int AtomispPipelineHandler::queueRequestDevice(Camera *camera, Request *request)
@@ -660,11 +687,15 @@ index 0000000..85ce629
 +		return -ENOENT;
 +	}
 +
++	const uint32_t frame = data->nextFrame_++;
++	data->frameIds_[buffer] = frame;
++	data->ipa_->queueRequest(frame, request->controls());
 +	int ret = data->video_->queueBuffer(buffer);
++	if (ret)
++		data->frameIds_.erase(buffer);
 +	if (ret)
 +		return ret;
 +
-+	data->ipa_->queueRequest(request->sequence(), request->controls());
 +	return 0;
 +}
 +
@@ -870,6 +901,7 @@ index 0000000..85ce629
 +	properties_ = sensor_->properties();
 +
 +	ipa_->setSensorControls.connect(this, &AtomispCameraData::setSensorControls);
++	ipa_->metadataReady.connect(this, &AtomispCameraData::metadataReady);
 +
 +	return 0;
 +}
@@ -878,50 +910,94 @@ index 0000000..85ce629
 +{
 +	Request *request = buffer->request();
 +
-+	if (buffer->metadata().status == FrameMetadata::FrameSuccess) {
-+		ipa_->computeParams(request->sequence());
-+
-+		const uint32_t frame = request->sequence();
-+		stats_->valid = false;
-+		if (frame % 4 == 0) {
-+			std::vector<DmaSyncer> syncers;
-+			std::set<int> syncedFds;
-+			for (const FrameBuffer::Plane &plane : buffer->planes()) {
-+				if (syncedFds.insert(plane.fd.get()).second)
-+					syncers.emplace_back(plane.fd, DmaSyncer::SyncType::Read);
-+			}
-+			MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::Read);
-+			const StreamConfiguration &config = stream_.configuration();
-+			if (mapped.isValid() && mapped.planes().size() == 3) {
-+				std::array<latte::YuvPlane, 3> planes;
-+				for (size_t i = 0; i < planes.size(); i++) {
-+					const auto &plane = mapped.planes()[i];
-+					planes[i] = { std::span<const uint8_t>(plane.data(), plane.size()),
-+						      i == 0 ? config.stride : config.stride / 2 };
-+				}
-+				latte::YuvStats result;
-+				if (latte::calculateYuv420Stats(planes, config.size.width, config.size.height,
-+								 { 0, 0, config.size.width, config.size.height }, result)) {
-+					stats_->yHistogram = result.histogram;
-+					stats_->sum_ = RGB<uint64_t>({ result.red, result.green, result.blue });
-+					stats_->valid = true;
-+				}
-+			}
-+			if (!stats_->valid)
-+				LOG(Atomisp, Error) << "Could not read YUV420 statistics from capture buffer";
++	if (!stopping_ && buffer->metadata().status == FrameMetadata::FrameSuccess) {
++		if (!frameIds_.contains(buffer)) {
++			LOG(Atomisp, Error) << "No IPA frame ID for completed buffer";
++			pipe()->cancelRequest(request);
++			return;
 +		}
-+		ipa_->processStats(frame, 0, delayedCtrls_->get(frame));
-+
-+		request->_d()->metadata().set(controls::SensorTimestamp,
-+					      buffer->metadata().timestamp);
++		pendingStats_.push_back(buffer);
++		processPendingStats();
++		return;
 +	}
 +
++	frameIds_.erase(buffer);
 +	pipe()->completeBuffer(request, buffer);
 +	pipe()->completeRequest(request);
 +}
 +
++void AtomispCameraData::processPendingStats()
++{
++	if (stopping_ || statsInFlight_ || pendingStats_.empty())
++		return;
++
++	FrameBuffer *buffer = pendingStats_.front();
++	const uint32_t frame = frameIds_.at(buffer);
++	const ControlList sensorControls = delayedCtrls_->get(buffer->metadata().sequence);
++	if (!sensorControls.contains(V4L2_CID_EXPOSURE) ||
++	    !sensorControls.contains(V4L2_CID_ANALOGUE_GAIN)) {
++		LOG(Atomisp, Error) << "Sensor exposure or gain is unavailable";
++		pendingStats_.pop_front();
++		frameIds_.erase(buffer);
++		pipe()->cancelRequest(buffer->request());
++		processPendingStats();
++		return;
++	}
++	statsInFlight_ = true;
++	ipa_->computeParams(frame);
++	stats_->valid = false;
++	if (frame % 4 == 0) {
++		std::vector<DmaSyncer> syncers;
++		std::set<int> syncedFds;
++		for (const FrameBuffer::Plane &plane : buffer->planes()) {
++			if (syncedFds.insert(plane.fd.get()).second)
++				syncers.emplace_back(plane.fd, DmaSyncer::SyncType::Read);
++		}
++		MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::Read);
++		const StreamConfiguration &config = stream_.configuration();
++		if (mapped.isValid() && mapped.planes().size() == 3) {
++			std::array<latte::YuvPlane, 3> planes;
++			for (size_t i = 0; i < planes.size(); i++) {
++				const auto &plane = mapped.planes()[i];
++				planes[i] = { std::span<const uint8_t>(plane.data(), plane.size()),
++					      i == 0 ? config.stride : config.stride / 2 };
++			}
++			latte::YuvStats result;
++			if (latte::calculateYuv420Stats(planes, config.size.width, config.size.height,
++							 { 0, 0, config.size.width, config.size.height }, result)) {
++				stats_->yHistogram = result.histogram;
++				stats_->sum_ = RGB<uint64_t>({ result.red, result.green, result.blue });
++				stats_->valid = true;
++			}
++		}
++		if (!stats_->valid)
++			LOG(Atomisp, Error) << "Could not read YUV420 statistics from capture buffer";
++	}
++	ipa_->processStats(frame, 0, sensorControls);
++}
++
++void AtomispCameraData::metadataReady(uint32_t frame, const ControlList &metadata)
++{
++	if (stopping_ || !statsInFlight_ || pendingStats_.empty() ||
++	    frameIds_.at(pendingStats_.front()) != frame)
++		return;
++
++	FrameBuffer *buffer = pendingStats_.front();
++	pendingStats_.pop_front();
++	frameIds_.erase(buffer);
++	statsInFlight_ = false;
++	Request *request = buffer->request();
++	request->_d()->metadata().merge(metadata);
++	request->_d()->metadata().set(controls::SensorTimestamp, buffer->metadata().timestamp);
++	pipe()->completeBuffer(request, buffer);
++	pipe()->completeRequest(request);
++	processPendingStats();
++}
++
 +void AtomispCameraData::setSensorControls(const ControlList &sensorControls)
 +{
++	if (stopping_)
++		return;
 +	delayedCtrls_->push(sensorControls);
 +	ControlList ctrls(sensorControls);
 +	sensor_->setControls(&ctrls);
