@@ -321,6 +321,11 @@ rejects incompatible changes. A different SDK revision is rejected, and the
 port is pinned to the exact `v0.7.2` source; it is not generally compatible
 with future stable updates.
 
+The replacement must include the exact GPL-2.0-or-later, LGPL-2.1-or-later,
+and CC0-1.0 texts from that pinned libcamera source, checked by SHA-256 before
+installation. The original SDK component files, including its licenses, must
+still match the composed sysroot byte-for-byte; any mismatch aborts the build.
+
 The port is experimental and not ready for deployment: serialization of
 asynchronous IPA statistics and metadata completion, stop/restart and
 cancellation paths, sensor controls and buffer layouts require further

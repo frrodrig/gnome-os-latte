@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Test isolated camera preparation and guarded sysroot replacement."""
 
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,14 +93,33 @@ class InstallTests(unittest.TestCase):
                 self.write(self.original, path, b"old")
                 self.write(self.sysroot, path, b"old")
         self.write(self.sysroot, install_camera.PIPEWIRE_BACKEND, b"pipewire")
-        self.write(self.original, install_camera.ORIGINAL_LICENSES / "LICENSE", b"license")
-        self.write(self.sysroot, install_camera.ORIGINAL_LICENSES / "LICENSE", b"license")
-        self.write(self.candidate, Path("usr/share/licenses/gnome/camera/LICENSE"), b"license")
+        self.original_license = (
+            install_camera.ORIGINAL_LICENSES / "LICENSES/GPL-2.0-or-later.txt"
+        )
+        self.original_license_bytes = b"original component license\n"
+        self.write(self.original, self.original_license, self.original_license_bytes)
+        self.write(self.sysroot, self.original_license, self.original_license_bytes)
+        self.candidate_licenses = {
+            path: f"candidate license {path.name}\n".encode()
+            for path in install_camera.EXPECTED_LICENSE_SHA256
+        }
+        for path, content in self.candidate_licenses.items():
+            self.write(self.candidate, path, content)
+        self.license_digest_patch = patch.object(
+            install_camera,
+            "EXPECTED_LICENSE_SHA256",
+            {
+                path: hashlib.sha256(content).hexdigest()
+                for path, content in self.candidate_licenses.items()
+            },
+        )
+        self.license_digest_patch.start()
         link = install_camera.LIBDIR / "libcamera.so.0.7"
         for root in (self.original, self.candidate, self.sysroot):
             (root / link).symlink_to("libcamera.so.0.7.2")
 
     def tearDown(self):
+        self.license_digest_patch.stop()
         self.tmp.cleanup()
 
     @staticmethod
@@ -114,7 +135,12 @@ class InstallTests(unittest.TestCase):
         self.run_install()
         self.assertEqual((self.sysroot / install_camera.LIBDIR / "libcamera.so.0.7.2").read_bytes(), b"new")
         self.assertEqual(os.readlink(self.sysroot / install_camera.LIBDIR / "libcamera.so.0.7"), "libcamera.so.0.7.2")
-        self.assertTrue((self.sysroot / install_camera.ORIGINAL_LICENSES / "LICENSE").is_file())
+        self.assertEqual(
+            (self.sysroot / self.original_license).read_bytes(),
+            self.original_license_bytes,
+        )
+        for path, content in self.candidate_licenses.items():
+            self.assertEqual((self.sysroot / path).read_bytes(), content)
         self.assertEqual((self.sysroot / install_camera.PIPEWIRE_BACKEND).read_bytes(), b"pipewire")
 
     def test_rejects_missing_candidate_and_conflicting_destination_before_writing(self):
@@ -135,6 +161,36 @@ class InstallTests(unittest.TestCase):
         (self.sysroot / install_camera.PIPEWIRE_BACKEND).unlink()
         with self.assertRaisesRegex(ValueError, "no PipeWire"):
             self.run_install()
+
+    def test_rejects_mismatched_composed_original_license_with_digests(self):
+        changed_license = b"changed composed license\n"
+        self.write(self.sysroot, self.original_license, changed_license)
+        with self.assertRaisesRegex(ValueError, "differs from original libcamera") as error:
+            self.run_install()
+        message = str(error.exception)
+        self.assertIn(hashlib.sha256(self.original_license_bytes).hexdigest(), message)
+        self.assertIn(hashlib.sha256(changed_license).hexdigest(), message)
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
+    def test_rejects_modified_candidate_license(self):
+        path = next(
+            path for path in self.candidate_licenses
+            if path.name == "LGPL-2.1-or-later.txt"
+        )
+        self.write(self.candidate, path, b"modified candidate license\n")
+        with self.assertRaisesRegex(ValueError, "license digest mismatch"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
+    def test_rejects_missing_candidate_license(self):
+        path = next(
+            path for path in self.candidate_licenses
+            if path.name == "LGPL-2.1-or-later.txt"
+        )
+        (self.candidate / path).unlink()
+        with self.assertRaisesRegex(ValueError, "missing license files"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
 
     def test_rejects_missing_original_runtime_file(self):
         self.write(self.original, Path("usr/share/libcamera/pipeline/original.yaml"), b"old")

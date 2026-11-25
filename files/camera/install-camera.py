@@ -2,6 +2,7 @@
 """Replace only the original libcamera runtime files in a composed sysroot."""
 
 import filecmp
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -20,6 +21,13 @@ REQUIRED = {
     Path("usr/share/libcamera/ipa/simple/uncalibrated_atomisp.yaml"),
 }
 ORIGINAL_LICENSES = Path("usr/share/licenses/freedesktop-sdk/libcamera")
+LICENSES = Path("usr/share/licenses/gnome/latte-libcamera/LICENSES")
+# Exact files from the pinned libcamera source commit in build/prepare-camera.py.
+EXPECTED_LICENSE_SHA256 = {
+    LICENSES / "GPL-2.0-or-later.txt": "606aa26338f69ce178f1cbc648b7574aec4b5bbaeb20f4df36ff49010cb8fbbd",
+    LICENSES / "LGPL-2.1-or-later.txt": "1ccf09bf2f598308df4bed9cd8e9657dc5cd0973d2800318f2e241486e2edf3f",
+    LICENSES / "CC0-1.0.txt": "6a573fb2f9082662978cf21fb153096df0a1981deaea7dbc10a11046fe005d9f",
+}
 PIPEWIRE_BACKEND = LIBDIR / "spa-0.2/libcamera/libspa-libcamera.so"
 
 
@@ -56,12 +64,42 @@ def same_file(source: Path, target: Path) -> bool:
     )
 
 
+def describe_file(path: Path) -> str:
+    if path.is_symlink():
+        return f"symlink->{os.readlink(path)}"
+    if not path.is_file():
+        return "missing or non-regular"
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    info = path.stat()
+    return (
+        f"mode={stat.S_IMODE(info.st_mode):04o}, size={info.st_size}, "
+        f"sha256={digest.hexdigest()}"
+    )
+
+
 def install(original: Path, candidate: Path, sysroot: Path) -> None:
     if any(not root.is_dir() or root.is_symlink() for root in (original, candidate, sysroot)):
         raise ValueError("Expected three existing, non-symlink directories")
     old_files, new_files = files(original), files(candidate)
     if not REQUIRED <= new_files:
         raise ValueError(f"Experimental camera runtime is incomplete: {sorted(REQUIRED - new_files)}")
+    missing_licenses = set(EXPECTED_LICENSE_SHA256) - new_files
+    if missing_licenses:
+        raise ValueError(f"Experimental component is missing license files: {sorted(missing_licenses)}")
+    for path, expected in EXPECTED_LICENSE_SHA256.items():
+        license_file = candidate / path
+        if license_file.is_symlink() or not license_file.is_file():
+            raise ValueError(f"Experimental component license is not a regular file: {path}")
+        actual = hashlib.sha256(license_file.read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError(
+                f"Experimental component license digest mismatch: {path} "
+                f"(expected sha256={expected}, actual sha256={actual})"
+            )
     if not (sysroot / PIPEWIRE_BACKEND).is_file():
         raise ValueError("The composed image has no PipeWire libcamera backend")
     missing = {path for path in old_files - new_files if not path.is_relative_to(ORIGINAL_LICENSES)}
@@ -71,7 +109,11 @@ def install(original: Path, candidate: Path, sysroot: Path) -> None:
         check_parents(sysroot, path)
     for path in old_files:
         if not same_file(original / path, sysroot / path):
-            raise ValueError(f"Composed image differs from original libcamera: {path}")
+            raise ValueError(
+                f"Composed image differs from original libcamera: {path} "
+                f"(component: {describe_file(original / path)}; "
+                f"sysroot: {describe_file(sysroot / path)})"
+            )
     for path in new_files - old_files:
         if os.path.lexists(sysroot / path):
             raise ValueError(f"Experimental runtime would overwrite an unrelated file: {path}")
