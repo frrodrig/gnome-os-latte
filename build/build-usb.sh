@@ -74,6 +74,7 @@ fi
         prepare_args+=("$LATTE_STAGING_VERSION")
     fi
     python3 "$repo_root/build/prepare-upstream.py" "${prepare_args[@]}"
+    python3 "$repo_root/build/prepare-camera.py" "$upstream"
     install -Dm644 "$repo_root/files/latte/installer_transaction.py" \
         "$upstream/files/gnomeos/live/proto-installer/installer_transaction.py"
 
@@ -124,7 +125,8 @@ fi
         files/gnomeos/latte/latte.conf \
         files/gnomeos/latte/live-no-boot-writes.conf \
         files/gnomeos/latte/00-latte-disable-sysupdate.preset \
-        files/gnomeos/latte/ucm
+        files/gnomeos/latte/ucm \
+        patches/freedesktop-sdk/0002-latte-camera.patch
 )
 
 if $prepare_only; then

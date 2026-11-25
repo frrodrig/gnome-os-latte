@@ -8,6 +8,7 @@ on:
       - .github/workflows/gnomeos-latte-usb.yml
       - build/**
       - elements/**
+      - files/camera/**
       - files/latte/**
       - files/kernel/**
       - README.md
@@ -52,6 +53,7 @@ jobs:
           python3 build/test-boot-validation.py
           python3 build/test-installer-transaction.py
           python3 build/test-ucm-overlay.py
+          python3 build/test-camera-integration.py
 
       - name: Inspect and reclaim runner disk
         shell: bash

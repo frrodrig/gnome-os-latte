@@ -275,9 +275,10 @@ The kernel includes Latte hardware support, capacitive-button mappings, and load
 
 ### Experimental AtomISP camera port
 
-The reported installed system detects only the front camera. No AtomISP
-libcamera pipeline is enabled in the image build, and this section does not
-claim that either sensor works through libcamera. The last successful image build
+The reported installed system detects only the front camera. The latest
+published image does not contain the experimental AtomISP pipeline. This
+branch now prepares an image-build overlay for it; the new ISO has not yet
+been built or tested on the tablet. The last successful image build
 selected GNOME Build Meta `db69d872ba90a7bb96b53bbcc8a88ea8e9c6c9f0` and
 Linux Latte `cc25d54906f61d53f4712ffa44ae38f4b4145f72` (release `v1.2.0`).
 That GNOME revision selects Freedesktop SDK `114ae909ec9881958bd507c8b4414aa33f758d2b`,
@@ -306,15 +307,22 @@ IPA and statistics APIs, and safe ownership of the capture node shared by
 both sensors. The original handler supports only one active sensor at a
 time.
 
-`files/camera/libcamera-0.7.2-atomisp.wip.patch` is an **unapplied,
-incomplete** port for the exact libcamera commit above. It preserves the
-original source notices and is not connected to BuildStream or an image.
-It is not suitable for deployment: the proposed serialization of asynchronous
-IPA statistics and metadata completion, stop/restart and cancellation paths,
-sensor controls and buffer layouts all require further validation. In
-particular, frame-start event availability and delayed exposure/gain controls
-on the actual Latte kernel have not been established. It must not be used
-merely because it applies or compiles.
+`build/prepare-camera.py` adds
+`files/camera/enable-freedesktop-sdk-atomisp.patch` to GNOME's Freedesktop SDK
+patch queue. The overlay rebuilds libcamera with the AtomISP, simple IPA and
+UVC pipelines and applies
+`files/camera/libcamera-0.7.2-atomisp.wip.patch`. It preserves the original
+source notices. The setup refuses a different SDK revision, while the
+libcamera patch itself is pinned to the exact `v0.7.2` source and fails if
+that source no longer matches. It is not a general update-compatible patch.
+
+The port is experimental and not ready for deployment: serialization of
+asynchronous IPA statistics and metadata completion, stop/restart and
+cancellation paths, sensor controls and buffer layouts require further
+validation. In particular, frame-start event availability and delayed
+exposure/gain controls on the actual Latte kernel have not been established.
+The branch's image workflow must pass its normal build and boot smoke test;
+even that would not prove camera support on the tablet.
 
 The separately testable `files/camera/atomisp-yuv.h` implements bounded YUV420
 sampling, including half-resolution chroma coordinates. Its focused test is
@@ -332,12 +340,11 @@ needs confirmation on the tablet. The Latte kernel also writes a CSI port
 into the reserved `VIDIOC_ENUMINPUT` field, but the proposed handler does not
 use that ioctl, so a kernel change is not established as necessary.
 
-A future integration must override and rebuild the SDK's libcamera element,
-include both the AtomISP and simple IPA pipelines, and fail explicitly if
-the resolved upstream changes incompatibly. Building alone does not establish
-sensor enumeration or capture. Test `cam -l`, PipeWire/GStreamer and GNOME
-Snapshot with each sensor, including switching and simultaneous-use errors,
-on the tablet before claiming support; no such tests have been run here.
+The image-build integration has not run yet. A successful image build alone
+would not establish sensor enumeration or capture. Test `cam -l`,
+PipeWire/GStreamer and GNOME Snapshot with each sensor, including switching
+and simultaneous-use errors, on the tablet before claiming support; no such
+tests have been run here.
 
 The first physical USB boot reached the initramfs but failed to activate
 dm-verity because the original hardware defconfig omitted `CONFIG_DM_VERITY`;
