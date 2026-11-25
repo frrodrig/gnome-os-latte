@@ -1,0 +1,13 @@
+diff --git a/src/meson.build b/src/meson.build
+index 8eb8f05..41e556d 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -16,7 +16,7 @@ summary({
+ 
+ # Module Signing
+ openssl = find_program('openssl', required : false)
+-if openssl.found()
++if false
+     ipa_priv_key = custom_target('ipa-priv-key',
+                                  output : ['ipa-priv-key.pem'],
+                                  command : [gen_ipa_priv_key, '@OUTPUT@'])

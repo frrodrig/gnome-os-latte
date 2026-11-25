@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add the pinned AtomISP patch to GNOME's Freedesktop SDK junction."""
+"""Prepare an isolated AtomISP libcamera without changing the SDK junction."""
 
 from pathlib import Path
 import shutil
@@ -8,70 +8,111 @@ import sys
 
 SDK_COMMIT = "114ae909ec9881958bd507c8b4414aa33f758d2b"
 LIBCAMERA_COMMIT = "191e202178f02430b5942397c70d215cdd2056fa"
-PATCH_QUEUE_FILE = "0002-latte-camera.patch"
+ELEMENTS = (
+    "latte-libcamera.bst",
+    "latte-libcamera-runtime.bst",
+    "latte-libcamera-original-runtime.bst",
+    "latte-libcamera-full.bst",
+    "latte-libcamera-original-full.bst",
+    "latte-camera-abi.bst",
+    "latte-camera-install.bst",
+)
+
+DEPENDENCIES = """- gnomeos/save-perms.bst
+- gnomeos/latte-camera-abi.bst
+- gnomeos/latte-camera-install.bst
+- freedesktop-sdk.bst:bootstrap/grep.bst
+- filename: gnomeos/latte-libcamera-original-runtime.bst
+  config:
+    location: /latte-original-camera
+- filename: gnomeos/latte-libcamera-runtime.bst
+  config:
+    location: /latte-experimental-camera
+"""
+
+COMMANDS = """  - mkdir /fakecap
+  - python3 /usr/bin/latte-camera-install.py /latte-original-camera /latte-experimental-camera /sysroot
+  - |
+    set -eu
+    test -s /latte-camera-abi-checked
+    libdir=/sysroot/usr/lib/x86_64-linux-gnu
+    export LD_LIBRARY_PATH="$libdir"
+    ldd -r "$libdir/spa-0.2/libcamera/libspa-libcamera.so" >/tmp/latte-pipewire-ldd.log 2>&1 || {
+      cat /tmp/latte-pipewire-ldd.log >&2
+      exit 1
+    }
+    if grep -E 'not found|undefined symbol' /tmp/latte-pipewire-ldd.log; then
+      echo "PipeWire's libcamera backend has unresolved dependencies" >&2
+      exit 1
+    fi
+    LIBCAMERA_LOG_LEVELS=Camera:DEBUG /sysroot/usr/bin/cam --list >/tmp/latte-camera-list.log 2>&1 || {
+      cat /tmp/latte-camera-list.log >&2
+      exit 1
+    }
+    cat /tmp/latte-camera-list.log
+    for pipeline in atomisp ipu3 simple uvcvideo virtual; do
+      grep -F "Found registered pipeline handler '$pipeline'" /tmp/latte-camera-list.log >/dev/null || {
+        echo "Missing libcamera pipeline: $pipeline" >&2
+        exit 1
+      }
+    done
+"""
 
 
-def verify_bundle(repository: Path) -> tuple[Path, Path]:
-    camera_dir = repository / "files/camera"
-    port = camera_dir / "libcamera-0.7.2-atomisp.wip.patch"
-    overlay = camera_dir / "enable-freedesktop-sdk-atomisp.patch"
-    if not port.is_file() or not overlay.is_file():
-        raise SystemExit("AtomISP patch bundle is incomplete.")
-
-    port_text = port.read_text(encoding="utf-8")
-    overlay_text = overlay.read_text(encoding="utf-8")
-    marker = "+++ b/patches/libcamera/latte-atomisp.patch\n"
-    if overlay_text.count(marker) != 1:
-        raise SystemExit("SDK overlay must add exactly one libcamera patch source.")
-    if f"ref: v0.7.2-0-g{LIBCAMERA_COMMIT}" not in overlay_text:
-        raise SystemExit("SDK overlay does not target the validated libcamera revision.")
-    if "pipelines: 'atomisp,simple,uvcvideo'" not in overlay_text:
-        raise SystemExit("SDK overlay does not enable AtomISP and the simple IPA.")
-
-    payload = overlay_text.split(marker, 1)[1]
-    header, separator, body = payload.partition("\n")
-    if not separator or not header.startswith("@@ -0,0 +1,"):
-        raise SystemExit("SDK overlay has an invalid nested libcamera patch.")
-    try:
-        expected_lines = int(header.rsplit(",", 1)[1].split()[0])
-    except (IndexError, ValueError) as error:
-        raise SystemExit("SDK overlay has an invalid nested patch line count.") from error
-    nested_lines = body.splitlines(keepends=True)
-    if len(nested_lines) != expected_lines or any(not line.startswith("+") for line in nested_lines):
-        raise SystemExit("SDK overlay nested patch is truncated or malformed.")
-    nested = "".join(line[1:] for line in nested_lines)
-    if nested != port_text:
-        raise SystemExit("SDK overlay and validated AtomISP patch differ.")
-
-    return overlay, port
+def insert_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if text.count(old) != 1 or new in text:
+        raise SystemExit(f"{path}: unexpected or already modified integration point")
+    path.write_text(text.replace(old, new), encoding="utf-8")
 
 
-def prepare(checkout: Path, repository: Path) -> Path:
-    overlay, _ = verify_bundle(repository)
+def copy_new(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        raise SystemExit(f"Camera integration file missing: {source}")
+    if destination.exists():
+        raise SystemExit(f"Refusing to overwrite an existing camera integration file: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+
+
+def prepare(checkout: Path, repository: Path) -> None:
     junction = checkout / "elements/freedesktop-sdk.bst"
     if not junction.is_file() or SDK_COMMIT not in junction.read_text(encoding="utf-8"):
-        raise SystemExit(
-            "AtomISP port requires the validated Freedesktop SDK junction "
-            f"at {SDK_COMMIT}; refusing an unreviewed upstream."
-        )
+        raise SystemExit(f"AtomISP requires the validated Freedesktop SDK revision {SDK_COMMIT}.")
+    if (checkout / "patches/freedesktop-sdk/0002-latte-camera.patch").exists():
+        raise SystemExit("The old camera SDK overlay is present; refusing to invalidate upstream caches.")
+    element = repository / "elements/gnomeos/latte-libcamera.bst"
+    if not element.is_file() or f"ref: v0.7.2-0-g{LIBCAMERA_COMMIT}" not in element.read_text(encoding="utf-8"):
+        raise SystemExit("The experimental libcamera recipe does not match the validated revision.")
 
-    patch_dir = checkout / "patches/freedesktop-sdk"
-    if not patch_dir.is_dir():
-        raise SystemExit(f"Freedesktop SDK patch queue is missing: {patch_dir}")
-    destination = patch_dir / PATCH_QUEUE_FILE
-    if destination.exists():
-        if destination.read_bytes() != overlay.read_bytes():
-            raise SystemExit(f"Refusing to overwrite an existing patch: {destination}")
-    else:
-        shutil.copyfile(overlay, destination)
-    return destination
+    for name in ELEMENTS:
+        copy_new(repository / "elements/gnomeos" / name, checkout / "elements/gnomeos" / name)
+    camera = repository / "files/camera"
+    copy_new(camera / "libcamera-0.7.2-atomisp.wip.patch", checkout / "patches/latte-camera/atomisp.patch")
+    copy_new(camera / "disable-ipa-sign.patch", checkout / "patches/latte-camera/disable-ipa-sign.patch")
+    copy_new(camera / "install-camera.py", checkout / "files/gnomeos/latte-camera-install.py")
+
+    aliases = checkout / "include/aliases.yml"
+    insert_once(
+        aliases,
+        "aliases:\n",
+        "aliases:\n  latte_libcamera: https://git.libcamera.org/\n"
+        "  latte_chromium: https://chromium.googlesource.com/\n",
+    )
+    layer = checkout / "elements/gnomeos/usr/layer.bst"
+    insert_once(layer, "- gnomeos/save-perms.bst\n", DEPENDENCIES)
+    insert_once(layer, "  - mkdir /fakecap\n", COMMANDS)
+    insert_once(
+        checkout / "elements/gnomeos/usr/manifest.bst",
+        "- gnomeos/usr/deps.bst\n",
+        "- gnomeos/usr/deps.bst\n- gnomeos/latte-libcamera.bst\n",
+    )
 
 
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: prepare-camera.py GNOME-BUILD-META-CHECKOUT")
-    repository = Path(__file__).resolve().parents[1]
-    prepare(Path(sys.argv[1]).resolve(), repository)
+    prepare(Path(sys.argv[1]).resolve(), Path(__file__).resolve().parents[1])
 
 
 if __name__ == "__main__":

@@ -108,6 +108,7 @@ fi
         elements/gnomeos/initramfs/filesystem.bst \
         elements/gnomeos/usr/deps.bst \
         elements/gnomeos/usr/layer.bst \
+        elements/gnomeos/usr/manifest.bst \
         elements/gnomeos/latte-kernel.bst \
         elements/gnomeos/latte-signed-modules.bst \
         elements/gnomeos/latte-hardware.bst \
@@ -126,7 +127,16 @@ fi
         files/gnomeos/latte/live-no-boot-writes.conf \
         files/gnomeos/latte/00-latte-disable-sysupdate.preset \
         files/gnomeos/latte/ucm \
-        patches/freedesktop-sdk/0002-latte-camera.patch
+        files/gnomeos/latte-camera-install.py \
+        include/aliases.yml \
+        elements/gnomeos/latte-libcamera.bst \
+        elements/gnomeos/latte-libcamera-runtime.bst \
+        elements/gnomeos/latte-libcamera-original-runtime.bst \
+        elements/gnomeos/latte-libcamera-full.bst \
+        elements/gnomeos/latte-libcamera-original-full.bst \
+        elements/gnomeos/latte-camera-abi.bst \
+        elements/gnomeos/latte-camera-install.bst \
+        patches/latte-camera
 )
 
 if $prepare_only; then

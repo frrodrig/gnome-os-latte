@@ -1,96 +1,154 @@
 #!/usr/bin/env python3
-"""Test that the GNOME patch queue carries the exact AtomISP libcamera port."""
+"""Test isolated camera preparation and guarded sysroot replacement."""
 
 import importlib.util
+import os
 from pathlib import Path
-import subprocess
+import shutil
 import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).with_name("prepare-camera.py")
-SPEC = importlib.util.spec_from_file_location("prepare_camera", SCRIPT)
-prepare_camera = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(prepare_camera)
-REPOSITORY = SCRIPT.resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 
 
-class CameraIntegrationTests(unittest.TestCase):
-    def make_checkout(self, root: Path, sdk_commit: str) -> Path:
-        (root / "elements").mkdir(parents=True)
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+prepare_camera = load("prepare_camera", ROOT / "build/prepare-camera.py")
+install_camera = load("install_camera", ROOT / "files/camera/install-camera.py")
+
+
+class PrepareTests(unittest.TestCase):
+    def make_checkout(self, root, sdk_commit=prepare_camera.SDK_COMMIT):
+        (root / "elements/gnomeos/usr").mkdir(parents=True)
+        (root / "include").mkdir()
         (root / "patches/freedesktop-sdk").mkdir(parents=True)
-        (root / "elements/freedesktop-sdk.bst").write_text(
-            "kind: junction\nsources:\n- kind: git_repo\n"
-            f"  ref: freedesktop-sdk-26.08.4-0-g{sdk_commit}\n",
-            encoding="utf-8",
+        (root / "elements/freedesktop-sdk.bst").write_text(f"ref: {sdk_commit}\n")
+        (root / "include/aliases.yml").write_text("aliases:\n  gnome: https://example.test/\n")
+        (root / "elements/gnomeos/usr/layer.bst").write_text(
+            "kind: script\nbuild-depends:\n- gnomeos/save-perms.bst\n"
+            "config:\n  commands:\n  - mkdir /fakecap\n"
+        )
+        (root / "elements/gnomeos/usr/manifest.bst").write_text(
+            "kind: collect_manifest\nbuild-depends:\n- gnomeos/usr/deps.bst\n"
         )
         return root
 
-    def test_prepare_adds_exact_camera_overlay(self):
+    def test_prepares_without_modifying_sdk_junction(self):
         with tempfile.TemporaryDirectory() as directory:
-            checkout = self.make_checkout(Path(directory), prepare_camera.SDK_COMMIT)
-            destination = prepare_camera.prepare(checkout, REPOSITORY)
-            overlay, port = prepare_camera.verify_bundle(REPOSITORY)
-            self.assertEqual(destination.read_bytes(), overlay.read_bytes())
-
-            sdk = Path(directory) / "sdk"
-            (sdk / "elements/components").mkdir(parents=True)
-            element = (
-                "- components/systemd-libs.bst\n\n"
-                "variables:\n  pipelines: 'auto'\n  arch-conf: ''\n  (?):\n"
-                "  - target_arch == \"aarch64\":\n"
-                "      pipelines: 'uvcvideo,simple,virtual,imx8-isi,mali-c55,rkisp1,rpi/vc4'\n"
-                "      arch-conf: -Drpi-awb-nn=disabled\n\n"
-                "  meson-local: >-\n    -Dgstreamer=enabled\n"
-                "    -Dpipelines=%{pipelines}\n    -Dudev=enabled\n"
-                "    -Dv4l2=true\n    -Dtracing=disabled\n    -Dtest=false\n"
-                "    -Dlc-compliance=disabled\n    -Dqcam=disabled\n"
-                "    -Ddocumentation=disabled\n    -Dpycamera=disabled\n"
-                "    -Dcam-output-sdl2=disabled\n    %{arch-conf}\n\n"
-                "sources:\n- kind: git_repo\n  url: git_https:git.libcamera.org/libcamera/libcamera.git\n"
-                "  track: v*.*\n"
-                f"  ref: v0.7.2-0-g{prepare_camera.LIBCAMERA_COMMIT}\n"
-                "- kind: patch\n  path: patches/libcamera/disable-ipa-sign.patch\n"
-                "- kind: git_module\n  path: subprojects/libyuv\n"
-                "  url: chromium:libyuv/libyuv.git\n  ref: 500f45652c459cfccd20f83f297eb66cb7b015cb\n"
-            )
-            target = sdk / "elements/components/libcamera.bst"
-            target.write_text(element, encoding="utf-8")
-            subprocess.run(
-                ["git", "init", "--quiet", str(sdk)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            subprocess.run(
-                ["git", "apply", "--check", str(destination)],
-                cwd=sdk,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            subprocess.run(
-                ["git", "apply", str(destination)],
-                cwd=sdk,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            patched_element = target.read_text(encoding="utf-8")
-            self.assertIn("pipelines: 'atomisp,simple,uvcvideo'", patched_element)
-            self.assertIn("patches/libcamera/latte-atomisp.patch", patched_element)
+            checkout = self.make_checkout(Path(directory))
+            junction = checkout / "elements/freedesktop-sdk.bst"
+            before = junction.read_bytes()
+            prepare_camera.prepare(checkout, ROOT)
+            self.assertEqual(junction.read_bytes(), before)
+            self.assertEqual(list((checkout / "patches/freedesktop-sdk").iterdir()), [])
             self.assertEqual(
-                (sdk / "patches/libcamera/latte-atomisp.patch").read_text(
-                    encoding="utf-8"
-                ).replace("\r\n", "\n"),
-                port.read_text(encoding="utf-8").replace("\r\n", "\n"),
+                (checkout / "patches/latte-camera/atomisp.patch").read_bytes(),
+                (ROOT / "files/camera/libcamera-0.7.2-atomisp.wip.patch").read_bytes(),
+            )
+            for name in prepare_camera.ELEMENTS:
+                self.assertTrue((checkout / "elements/gnomeos" / name).is_file())
+            layer = (checkout / "elements/gnomeos/usr/layer.bst").read_text()
+            self.assertIn("gnomeos/latte-camera-abi.bst", layer)
+            self.assertIn("python3 /usr/bin/latte-camera-install.py", layer)
+            self.assertIn("libspa-libcamera.so", layer)
+            self.assertIn("atomisp ipu3 simple uvcvideo virtual", layer)
+            self.assertLess(layer.index("mkdir /fakecap"), layer.index("latte-camera-install.py"))
+            self.assertIn(
+                "- gnomeos/latte-libcamera.bst\n",
+                (checkout / "elements/gnomeos/usr/manifest.bst").read_text(),
             )
 
-    def test_prepare_rejects_an_unreviewed_sdk_revision(self):
+    def test_rejects_unreviewed_sdk_and_old_overlay(self):
         with tempfile.TemporaryDirectory() as directory:
             checkout = self.make_checkout(Path(directory), "0" * 40)
-            with self.assertRaisesRegex(SystemExit, "requires the validated"):
-                prepare_camera.prepare(checkout, REPOSITORY)
+            with self.assertRaisesRegex(SystemExit, "validated Freedesktop SDK"):
+                prepare_camera.prepare(checkout, ROOT)
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = self.make_checkout(Path(directory))
+            (checkout / "patches/freedesktop-sdk/0002-latte-camera.patch").touch()
+            with self.assertRaisesRegex(SystemExit, "old camera SDK overlay"):
+                prepare_camera.prepare(checkout, ROOT)
+
+
+class InstallTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.original, self.candidate, self.sysroot = (
+            root / "original", root / "candidate", root / "sysroot"
+        )
+        for path in (self.original, self.candidate, self.sysroot):
+            path.mkdir()
+        for path in install_camera.REQUIRED:
+            self.write(self.candidate, path, b"new")
+            if not str(path).endswith("uncalibrated_atomisp.yaml"):
+                self.write(self.original, path, b"old")
+                self.write(self.sysroot, path, b"old")
+        self.write(self.sysroot, install_camera.PIPEWIRE_BACKEND, b"pipewire")
+        self.write(self.original, install_camera.ORIGINAL_LICENSES / "LICENSE", b"license")
+        self.write(self.sysroot, install_camera.ORIGINAL_LICENSES / "LICENSE", b"license")
+        self.write(self.candidate, Path("usr/share/licenses/gnome/camera/LICENSE"), b"license")
+        link = install_camera.LIBDIR / "libcamera.so.0.7"
+        for root in (self.original, self.candidate, self.sysroot):
+            (root / link).symlink_to("libcamera.so.0.7.2")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def write(root, path, content):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+
+    def run_install(self):
+        install_camera.install(self.original, self.candidate, self.sysroot)
+
+    def test_replaces_only_camera_files_and_preserves_licenses(self):
+        self.run_install()
+        self.assertEqual((self.sysroot / install_camera.LIBDIR / "libcamera.so.0.7.2").read_bytes(), b"new")
+        self.assertEqual(os.readlink(self.sysroot / install_camera.LIBDIR / "libcamera.so.0.7"), "libcamera.so.0.7.2")
+        self.assertTrue((self.sysroot / install_camera.ORIGINAL_LICENSES / "LICENSE").is_file())
+        self.assertEqual((self.sysroot / install_camera.PIPEWIRE_BACKEND).read_bytes(), b"pipewire")
+
+    def test_rejects_missing_candidate_and_conflicting_destination_before_writing(self):
+        (self.candidate / "usr/bin/cam").unlink()
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            self.run_install()
+        self.write(self.candidate, Path("usr/bin/cam"), b"new")
+        self.write(self.sysroot, Path("usr/share/libcamera/ipa/simple/uncalibrated_atomisp.yaml"), b"unrelated")
+        with self.assertRaisesRegex(ValueError, "unrelated file"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
+    def test_rejects_changed_original_and_missing_pipewire(self):
+        self.write(self.sysroot, Path("usr/bin/cam"), b"modified")
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        self.write(self.sysroot, Path("usr/bin/cam"), b"old")
+        (self.sysroot / install_camera.PIPEWIRE_BACKEND).unlink()
+        with self.assertRaisesRegex(ValueError, "no PipeWire"):
+            self.run_install()
+
+    def test_rejects_missing_original_runtime_file(self):
+        self.write(self.original, Path("usr/share/libcamera/pipeline/original.yaml"), b"old")
+        self.write(self.sysroot, Path("usr/share/libcamera/pipeline/original.yaml"), b"old")
+        with self.assertRaisesRegex(ValueError, "omits original files"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
+    def test_rejects_symlinked_destination_directory(self):
+        path = self.sysroot / "usr/share/licenses"
+        shutil.rmtree(path)
+        path.symlink_to(self.original, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlinked destination"):
+            self.run_install()
 
 
 if __name__ == "__main__":

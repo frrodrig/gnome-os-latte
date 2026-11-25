@@ -307,14 +307,19 @@ IPA and statistics APIs, and safe ownership of the capture node shared by
 both sensors. The original handler supports only one active sensor at a
 time.
 
-`build/prepare-camera.py` adds
-`files/camera/enable-freedesktop-sdk-atomisp.patch` to GNOME's Freedesktop SDK
-patch queue. The overlay rebuilds libcamera with the AtomISP, simple IPA and
-UVC pipelines and applies
-`files/camera/libcamera-0.7.2-atomisp.wip.patch`. It preserves the original
-source notices. The setup refuses a different SDK revision, while the
-libcamera patch itself is pinned to the exact `v0.7.2` source and fails if
-that source no longer matches. It is not a general update-compatible patch.
+`build/prepare-camera.py` builds a separate libcamera with
+`files/camera/libcamera-0.7.2-atomisp.wip.patch`, without changing the SDK
+junction or its cached consumers. The x86 pipelines include AtomISP, IPU3,
+simple, UVC and virtual. The recipe and `disable-ipa-sign.patch` are based on
+Freedesktop SDK's MIT-licensed libcamera element at the revision above; the
+AtomISP patch preserves its original source notices. The image layer replaces
+the original runtime files only after checking their identity, required IPA
+modules, libcamera ABI and PipeWire linkage, and verifies that all five
+pipelines register. The image manifest records both the original dependency
+and the replacement. The ABI check uses the SDK's debug information and
+rejects incompatible changes. A different SDK revision is rejected, and the
+port is pinned to the exact `v0.7.2` source; it is not generally compatible
+with future stable updates.
 
 The port is experimental and not ready for deployment: serialization of
 asynchronous IPA statistics and metadata completion, stop/restart and

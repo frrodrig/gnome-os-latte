@@ -1,5 +1,5 @@
 diff --git a/include/libcamera/internal/ipa_manager.h b/include/libcamera/internal/ipa_manager.h
-index aaa3ca3..f84794e 100644
+index aaa3ca3..6869249 100644
 --- a/include/libcamera/internal/ipa_manager.h
 +++ b/include/libcamera/internal/ipa_manager.h
 @@ -35,9 +35,9 @@ public:
@@ -14,26 +14,26 @@ index aaa3ca3..f84794e 100644
  		if (!m)
  			return nullptr;
  
-@@ -69,7 +69,7 @@ private:
- 	unsigned int addDir(const char *libDir, unsigned int maxDepth = 0);
+@@ -70,6 +70,8 @@ private:
  
  	IPAModule *module(PipelineHandler *pipe, uint32_t minVersion,
--			  uint32_t maxVersion);
+ 			  uint32_t maxVersion);
++	IPAModule *module(PipelineHandler *pipe, uint32_t minVersion,
 +			  uint32_t maxVersion, const char *ipaName);
  
  	bool isSignatureValid(IPAModule *ipa) const;
  
 diff --git a/include/libcamera/internal/ipa_module.h b/include/libcamera/internal/ipa_module.h
-index 15f1949..3a5499d 100644
+index 15f1949..dc97fca 100644
 --- a/include/libcamera/internal/ipa_module.h
 +++ b/include/libcamera/internal/ipa_module.h
-@@ -37,7 +37,8 @@ public:
- 	IPAInterface *createInterface();
+@@ -38,6 +38,9 @@ public:
  
  	bool match(PipelineHandler *pipe,
--		   uint32_t minVersion, uint32_t maxVersion) const;
+ 		   uint32_t minVersion, uint32_t maxVersion) const;
++	bool match(PipelineHandler *pipe,
 +		   uint32_t minVersion, uint32_t maxVersion,
-+		   const char *ipaName = nullptr) const;
++		   const char *ipaName) const;
  
  protected:
  	std::string logPrefix() const override;
@@ -117,17 +117,18 @@ index 0000000..6dcc029
 +  - Agc:
 +...
 diff --git a/src/libcamera/ipa_manager.cpp b/src/libcamera/ipa_manager.cpp
-index 41918e4..ff91a78 100644
+index 41918e4..3bddbc3 100644
 --- a/src/libcamera/ipa_manager.cpp
 +++ b/src/libcamera/ipa_manager.cpp
-@@ -251,12 +251,13 @@ unsigned int IPAManager::addDir(const char *libDir, unsigned int maxDepth)
-  * \param[in] pipe The pipeline handler
-  * \param[in] minVersion Minimum acceptable version of IPA module
-  * \param[in] maxVersion Maximum acceptable version of IPA module
-+ * \param[in] ipaName Optional IPA module name to match
+@@ -254,9 +254,15 @@ unsigned int IPAManager::addDir(const char *libDir, unsigned int maxDepth)
   */
  IPAModule *IPAManager::module(PipelineHandler *pipe, uint32_t minVersion,
--			      uint32_t maxVersion)
+ 			      uint32_t maxVersion)
++{
++	return module(pipe, minVersion, maxVersion, nullptr);
++}
++
++IPAModule *IPAManager::module(PipelineHandler *pipe, uint32_t minVersion,
 +			      uint32_t maxVersion, const char *ipaName)
  {
  	for (const auto &module : modules_) {
@@ -136,7 +137,7 @@ index 41918e4..ff91a78 100644
  			return module.get();
  	}
  
-@@ -269,6 +270,7 @@ IPAModule *IPAManager::module(PipelineHandler *pipe, uint32_t minVersion,
+@@ -269,6 +275,7 @@ IPAModule *IPAManager::module(PipelineHandler *pipe, uint32_t minVersion,
   * \param[in] pipe The pipeline handler that wants a matching IPA proxy
   * \param[in] minVersion Minimum acceptable version of IPA module
   * \param[in] maxVersion Maximum acceptable version of IPA module
@@ -145,22 +146,18 @@ index 41918e4..ff91a78 100644
   * \return A newly created IPA proxy, or nullptr if no matching IPA module is
   * found or if the IPA proxy fails to initialize
 diff --git a/src/libcamera/ipa_module.cpp b/src/libcamera/ipa_module.cpp
-index e6ea61e..17e3d51 100644
+index e6ea61e..01ee800 100644
 --- a/src/libcamera/ipa_module.cpp
 +++ b/src/libcamera/ipa_module.cpp
-@@ -466,6 +466,7 @@ IPAInterface *IPAModule::createInterface()
-  * \param[in] pipe Pipeline handler to match with
-  * \param[in] minVersion Minimum acceptable version of IPA module
-  * \param[in] maxVersion Maximum acceptable version of IPA module
-+ * \param[in] ipaName Optional IPA module name to match instead of the pipeline
-  *
-  * This function checks if this IPA module matches the \a pipe pipeline handler,
-  * and the input version range.
-@@ -473,11 +474,13 @@ IPAInterface *IPAModule::createInterface()
-  * \return True if the pipeline handler matches the IPA module, or false otherwise
+@@ -474,10 +474,18 @@ IPAInterface *IPAModule::createInterface()
   */
  bool IPAModule::match(PipelineHandler *pipe,
--		      uint32_t minVersion, uint32_t maxVersion) const
+ 		      uint32_t minVersion, uint32_t maxVersion) const
++{
++	return match(pipe, minVersion, maxVersion, nullptr);
++}
++
++bool IPAModule::match(PipelineHandler *pipe,
 +		      uint32_t minVersion, uint32_t maxVersion,
 +		      const char *ipaName) const
  {
@@ -1043,10 +1040,10 @@ index ca87598..ce0fda0 100644
  {
  	std::vector<V4L2PixelFormat> formats;
 diff --git a/test/ipa/ipa_module_test.cpp b/test/ipa/ipa_module_test.cpp
-index 1c97da3..dfeed01 100644
+index 1c97da3..45c4e2d 100644
 --- a/test/ipa/ipa_module_test.cpp
 +++ b/test/ipa/ipa_module_test.cpp
-@@ -33,6 +33,16 @@ protected:
+@@ -33,6 +33,18 @@ protected:
  
  		const struct IPAModuleInfo &info = ll->info();
  
@@ -1055,7 +1052,9 @@ index 1c97da3..dfeed01 100644
 +		    ll->match(nullptr, testInfo.pipelineVersion, testInfo.pipelineVersion,
 +			      "unknown") ||
 +		    ll->match(nullptr, testInfo.pipelineVersion + 1,
-+			      testInfo.pipelineVersion + 1, testInfo.name)) {
++			      testInfo.pipelineVersion + 1, testInfo.name) ||
++		    ll->match(nullptr, testInfo.pipelineVersion + 1,
++			      testInfo.pipelineVersion + 1)) {
 +			cerr << "IPA name or version matching failed" << endl;
 +			ret = -1;
 +		}
