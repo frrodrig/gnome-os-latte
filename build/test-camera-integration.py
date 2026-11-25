@@ -165,12 +165,19 @@ class InstallTests(unittest.TestCase):
     def test_rejects_mismatched_composed_original_license_with_digests(self):
         changed_license = b"changed composed license\n"
         self.write(self.sysroot, self.original_license, changed_license)
+        before_digest = hashlib.sha256(
+            (self.sysroot / self.original_license).read_bytes()
+        ).hexdigest()
         with self.assertRaisesRegex(ValueError, "differs from original libcamera") as error:
             self.run_install()
         message = str(error.exception)
         self.assertIn(hashlib.sha256(self.original_license_bytes).hexdigest(), message)
-        self.assertIn(hashlib.sha256(changed_license).hexdigest(), message)
+        self.assertIn(before_digest, message)
         self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+        after_digest = hashlib.sha256(
+            (self.sysroot / self.original_license).read_bytes()
+        ).hexdigest()
+        self.assertEqual(after_digest, before_digest)
 
     def test_rejects_modified_candidate_license(self):
         path = next(
