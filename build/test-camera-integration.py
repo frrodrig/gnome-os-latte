@@ -179,6 +179,58 @@ class InstallTests(unittest.TestCase):
         ).hexdigest()
         self.assertEqual(after_digest, before_digest)
 
+    def deduplicate_original_license(self):
+        digest = hashlib.sha256(
+            self.original_license.name.encode("utf-8") + self.original_license_bytes
+        ).hexdigest()
+        common = install_camera.COMMON_LICENSES / f"LICENSE_{digest[:12]}"
+        self.write(self.sysroot, common, self.original_license_bytes)
+        path = self.sysroot / self.original_license
+        path.unlink()
+        path.symlink_to(f"/{common}")
+        return common
+
+    def test_preserves_verified_upstream_deduplicated_license(self):
+        common = self.deduplicate_original_license()
+        self.run_install()
+        self.assertEqual(os.readlink(self.sysroot / self.original_license), f"/{common}")
+        self.assertEqual((self.sysroot / common).read_bytes(), self.original_license_bytes)
+
+    def test_rejects_untrusted_deduplicated_license_before_writing(self):
+        common = self.deduplicate_original_license()
+        path = self.sysroot / self.original_license
+        path.unlink()
+        path.symlink_to("/etc/passwd")
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        path.unlink()
+        path.symlink_to(f"/{install_camera.COMMON_LICENSES}/LICENSE_wrong")
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        path.unlink()
+        path.symlink_to(f"/{common}")
+        self.write(self.sysroot, common, b"altered common license\n")
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        self.write(self.sysroot, common, self.original_license_bytes)
+        (self.sysroot / common).chmod(0o600)
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        (self.sysroot / common).unlink()
+        (self.sysroot / common).symlink_to(self.original / self.original_license)
+        with self.assertRaisesRegex(ValueError, "differs from original"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
+    def test_rejects_symlinked_common_license_directory(self):
+        self.deduplicate_original_license()
+        common_dir = self.sysroot / install_camera.COMMON_LICENSES
+        shutil.rmtree(common_dir)
+        common_dir.symlink_to(self.original, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlinked destination directory"):
+            self.run_install()
+        self.assertEqual((self.sysroot / "usr/bin/cam").read_bytes(), b"old")
+
     def test_rejects_modified_candidate_license(self):
         path = next(
             path for path in self.candidate_licenses

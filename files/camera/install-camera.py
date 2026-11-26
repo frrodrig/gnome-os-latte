@@ -21,6 +21,7 @@ REQUIRED = {
     Path("usr/share/libcamera/ipa/simple/uncalibrated_atomisp.yaml"),
 }
 ORIGINAL_LICENSES = Path("usr/share/licenses/freedesktop-sdk/libcamera")
+COMMON_LICENSES = Path("usr/share/licenses/common")
 LICENSES = Path("usr/share/licenses/gnome/latte-libcamera/LICENSES")
 # Exact files from the pinned libcamera source commit in build/prepare-camera.py.
 EXPECTED_LICENSE_SHA256 = {
@@ -81,6 +82,23 @@ def describe_file(path: Path) -> str:
     )
 
 
+def same_original_file(original: Path, sysroot: Path, path: Path) -> bool:
+    source, target = original / path, sysroot / path
+    if (
+        path.is_relative_to(ORIGINAL_LICENSES)
+        and source.is_file()
+        and not source.is_symlink()
+        and target.is_symlink()
+    ):
+        digest = hashlib.sha256(path.name.encode("utf-8") + source.read_bytes()).hexdigest()
+        common = COMMON_LICENSES / f"LICENSE_{digest[:12]}"
+        if os.readlink(target) != f"/{common}":
+            return False
+        check_parents(sysroot, common)
+        return same_file(source, sysroot / common)
+    return same_file(source, target)
+
+
 def install(original: Path, candidate: Path, sysroot: Path) -> None:
     if any(not root.is_dir() or root.is_symlink() for root in (original, candidate, sysroot)):
         raise ValueError("Expected three existing, non-symlink directories")
@@ -108,7 +126,7 @@ def install(original: Path, candidate: Path, sysroot: Path) -> None:
     for path in old_files | new_files:
         check_parents(sysroot, path)
     for path in old_files:
-        if not same_file(original / path, sysroot / path):
+        if not same_original_file(original, sysroot, path):
             raise ValueError(
                 f"Composed image differs from original libcamera: {path} "
                 f"(component: {describe_file(original / path)}; "

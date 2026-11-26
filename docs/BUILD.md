@@ -324,7 +324,12 @@ with future stable updates.
 The replacement must include the exact GPL-2.0-or-later, LGPL-2.1-or-later,
 and CC0-1.0 texts from that pinned libcamera source, checked by SHA-256 before
 installation. The original SDK component files, including its licenses, must
-still match the composed sysroot byte-for-byte; any mismatch aborts the build.
+still match the composed sysroot byte-for-byte and by mode; any mismatch aborts
+the build. Freedesktop SDK's license deduplication can replace an original
+license with an absolute link to `/usr/share/licenses/common/LICENSE_*`. The
+installer accepts only the precise filename derived by the pinned SDK's
+deduplicator, and verifies its regular-file target and content within the
+sysroot. The original link and shared license are left intact.
 
 The port is experimental and not ready for deployment: serialization of
 asynchronous IPA statistics and metadata completion, stop/restart and
